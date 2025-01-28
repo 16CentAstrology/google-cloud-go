@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package apigeeconnect
 
 import (
 	"context"
+	"log/slog"
 	"math"
 
 	apigeeconnectpb "cloud.google.com/go/apigeeconnect/apiv1/apigeeconnectpb"
@@ -26,7 +27,6 @@ import (
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 var newTetherClientHook clientHook
@@ -39,10 +39,13 @@ type TetherCallOptions struct {
 func defaultTetherGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("apigeeconnect.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("apigeeconnect.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("apigeeconnect.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://apigeeconnect.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -117,9 +120,6 @@ type tetherGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing TetherClient
 	CallOptions **TetherCallOptions
 
@@ -127,7 +127,9 @@ type tetherGRPCClient struct {
 	tetherClient apigeeconnectpb.TetherClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewTetherClient creates a new tether client based on gRPC.
@@ -146,11 +148,6 @@ func NewTetherClient(ctx context.Context, opts ...option.ClientOption) (*TetherC
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -158,10 +155,10 @@ func NewTetherClient(ctx context.Context, opts ...option.ClientOption) (*TetherC
 	client := TetherClient{CallOptions: defaultTetherCallOptions()}
 
 	c := &tetherGRPCClient{
-		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
-		tetherClient:     apigeeconnectpb.NewTetherClient(connPool),
-		CallOptions:      &client.CallOptions,
+		connPool:     connPool,
+		tetherClient: apigeeconnectpb.NewTetherClient(connPool),
+		CallOptions:  &client.CallOptions,
+		logger:       internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -182,9 +179,11 @@ func (c *tetherGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *tetherGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -194,12 +193,14 @@ func (c *tetherGRPCClient) Close() error {
 }
 
 func (c *tetherGRPCClient) Egress(ctx context.Context, opts ...gax.CallOption) (apigeeconnectpb.Tether_EgressClient, error) {
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	var resp apigeeconnectpb.Tether_EgressClient
 	opts = append((*c.CallOptions).Egress[0:len((*c.CallOptions).Egress):len((*c.CallOptions).Egress)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
+		c.logger.DebugContext(ctx, "api streaming client request", "serviceName", serviceName, "rpcName", "Egress")
 		resp, err = c.tetherClient.Egress(ctx, settings.GRPC...)
+		c.logger.DebugContext(ctx, "api streaming client response", "serviceName", serviceName, "rpcName", "Egress")
 		return err
 	}, opts...)
 	if err != nil {

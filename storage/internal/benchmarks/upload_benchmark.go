@@ -28,6 +28,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/api/googleapi"
 )
 
@@ -38,9 +41,20 @@ type uploadOpts struct {
 	object              string
 	useDefaultChunkSize bool
 	objectPath          string
+	timeout             time.Duration
+
+	appendWrites bool
 }
 
 func uploadBenchmark(ctx context.Context, uopts uploadOpts) (elapsedTime time.Duration, rerr error) {
+	var span trace.Span
+	ctx, span = otel.GetTracerProvider().Tracer(tracerName).Start(ctx, "upload")
+	span.SetAttributes(
+		attribute.KeyValue{Key: "bucket", Value: attribute.StringValue(uopts.bucket)},
+		attribute.KeyValue{Key: "chunk_size", Value: attribute.Int64Value(uopts.params.chunkSize)},
+	)
+	defer span.End()
+
 	// Set timer
 	start := time.Now()
 	// Multiple defer statements execute in LIFO order, so this will be the last
@@ -50,7 +64,7 @@ func uploadBenchmark(ctx context.Context, uopts uploadOpts) (elapsedTime time.Du
 	defer func() { elapsedTime = time.Since(start) }()
 
 	// Set additional timeout
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, uopts.timeout)
 	defer cancel()
 
 	// Open file
@@ -65,6 +79,9 @@ func uploadBenchmark(ctx context.Context, uopts uploadOpts) (elapsedTime time.Du
 	objectWriter := o.If(storage.Conditions{DoesNotExist: true}).NewWriter(ctx)
 	if !uopts.useDefaultChunkSize {
 		objectWriter.ChunkSize = int(uopts.params.chunkSize)
+	}
+	if uopts.appendWrites {
+		objectWriter.Append = true
 	}
 
 	mw, md5Hash, crc32cHash := generateUploadWriter(objectWriter, uopts.params.md5Enabled, uopts.params.crc32cEnabled)

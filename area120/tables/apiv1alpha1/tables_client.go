@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -28,14 +28,12 @@ import (
 
 	tablespb "cloud.google.com/go/area120/tables/apiv1alpha1/tablespb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -61,10 +59,13 @@ type CallOptions struct {
 func defaultGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("area120tables.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("area120tables.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("area120tables.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://area120tables.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -72,35 +73,83 @@ func defaultGRPCClientOptions() []option.ClientOption {
 
 func defaultCallOptions() *CallOptions {
 	return &CallOptions{
-		GetTable:        []gax.CallOption{},
-		ListTables:      []gax.CallOption{},
-		GetWorkspace:    []gax.CallOption{},
-		ListWorkspaces:  []gax.CallOption{},
-		GetRow:          []gax.CallOption{},
-		ListRows:        []gax.CallOption{},
-		CreateRow:       []gax.CallOption{},
-		BatchCreateRows: []gax.CallOption{},
-		UpdateRow:       []gax.CallOption{},
-		BatchUpdateRows: []gax.CallOption{},
-		DeleteRow:       []gax.CallOption{},
-		BatchDeleteRows: []gax.CallOption{},
+		GetTable: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListTables: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetWorkspace: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListWorkspaces: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetRow: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListRows: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateRow: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		BatchCreateRows: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateRow: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		BatchUpdateRows: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteRow: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		BatchDeleteRows: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 	}
 }
 
 func defaultRESTCallOptions() *CallOptions {
 	return &CallOptions{
-		GetTable:        []gax.CallOption{},
-		ListTables:      []gax.CallOption{},
-		GetWorkspace:    []gax.CallOption{},
-		ListWorkspaces:  []gax.CallOption{},
-		GetRow:          []gax.CallOption{},
-		ListRows:        []gax.CallOption{},
-		CreateRow:       []gax.CallOption{},
-		BatchCreateRows: []gax.CallOption{},
-		UpdateRow:       []gax.CallOption{},
-		BatchUpdateRows: []gax.CallOption{},
-		DeleteRow:       []gax.CallOption{},
-		BatchDeleteRows: []gax.CallOption{},
+		GetTable: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListTables: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetWorkspace: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListWorkspaces: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetRow: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListRows: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateRow: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		BatchCreateRows: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateRow: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		BatchUpdateRows: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteRow: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		BatchDeleteRows: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 	}
 }
 
@@ -236,9 +285,6 @@ type gRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing Client
 	CallOptions **CallOptions
 
@@ -246,7 +292,9 @@ type gRPCClient struct {
 	client tablespb.TablesServiceClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewClient creates a new tables service client based on gRPC.
@@ -274,11 +322,6 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -286,10 +329,10 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 	client := Client{CallOptions: defaultCallOptions()}
 
 	c := &gRPCClient{
-		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
-		client:           tablespb.NewTablesServiceClient(connPool),
-		CallOptions:      &client.CallOptions,
+		connPool:    connPool,
+		client:      tablespb.NewTablesServiceClient(connPool),
+		CallOptions: &client.CallOptions,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -310,9 +353,11 @@ func (c *gRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *gRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -329,11 +374,13 @@ type restClient struct {
 	// The http client.
 	httpClient *http.Client
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing Client
 	CallOptions **CallOptions
+
+	logger *slog.Logger
 }
 
 // NewRESTClient creates a new tables service rest client.
@@ -362,6 +409,7 @@ func NewRESTClient(ctx context.Context, opts ...option.ClientOption) (*Client, e
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -371,9 +419,12 @@ func NewRESTClient(ctx context.Context, opts ...option.ClientOption) (*Client, e
 func defaultRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://area120tables.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://area120tables.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://area120tables.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://area120tables.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -381,9 +432,11 @@ func defaultRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *restClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -401,19 +454,15 @@ func (c *restClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *gRPCClient) GetTable(ctx context.Context, req *tablespb.GetTableRequest, opts ...gax.CallOption) (*tablespb.Table, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetTable[0:len((*c.CallOptions).GetTable):len((*c.CallOptions).GetTable)], opts...)
 	var resp *tablespb.Table
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetTable(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetTable, req, settings.GRPC, c.logger, "GetTable")
 		return err
 	}, opts...)
 	if err != nil {
@@ -423,7 +472,7 @@ func (c *gRPCClient) GetTable(ctx context.Context, req *tablespb.GetTableRequest
 }
 
 func (c *gRPCClient) ListTables(ctx context.Context, req *tablespb.ListTablesRequest, opts ...gax.CallOption) *TableIterator {
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).ListTables[0:len((*c.CallOptions).ListTables):len((*c.CallOptions).ListTables)], opts...)
 	it := &TableIterator{}
 	req = proto.Clone(req).(*tablespb.ListTablesRequest)
@@ -439,7 +488,7 @@ func (c *gRPCClient) ListTables(ctx context.Context, req *tablespb.ListTablesReq
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListTables(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListTables, req, settings.GRPC, c.logger, "ListTables")
 			return err
 		}, opts...)
 		if err != nil {
@@ -466,19 +515,15 @@ func (c *gRPCClient) ListTables(ctx context.Context, req *tablespb.ListTablesReq
 }
 
 func (c *gRPCClient) GetWorkspace(ctx context.Context, req *tablespb.GetWorkspaceRequest, opts ...gax.CallOption) (*tablespb.Workspace, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetWorkspace[0:len((*c.CallOptions).GetWorkspace):len((*c.CallOptions).GetWorkspace)], opts...)
 	var resp *tablespb.Workspace
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetWorkspace(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetWorkspace, req, settings.GRPC, c.logger, "GetWorkspace")
 		return err
 	}, opts...)
 	if err != nil {
@@ -488,7 +533,7 @@ func (c *gRPCClient) GetWorkspace(ctx context.Context, req *tablespb.GetWorkspac
 }
 
 func (c *gRPCClient) ListWorkspaces(ctx context.Context, req *tablespb.ListWorkspacesRequest, opts ...gax.CallOption) *WorkspaceIterator {
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).ListWorkspaces[0:len((*c.CallOptions).ListWorkspaces):len((*c.CallOptions).ListWorkspaces)], opts...)
 	it := &WorkspaceIterator{}
 	req = proto.Clone(req).(*tablespb.ListWorkspacesRequest)
@@ -504,7 +549,7 @@ func (c *gRPCClient) ListWorkspaces(ctx context.Context, req *tablespb.ListWorks
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListWorkspaces(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListWorkspaces, req, settings.GRPC, c.logger, "ListWorkspaces")
 			return err
 		}, opts...)
 		if err != nil {
@@ -531,19 +576,15 @@ func (c *gRPCClient) ListWorkspaces(ctx context.Context, req *tablespb.ListWorks
 }
 
 func (c *gRPCClient) GetRow(ctx context.Context, req *tablespb.GetRowRequest, opts ...gax.CallOption) (*tablespb.Row, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetRow[0:len((*c.CallOptions).GetRow):len((*c.CallOptions).GetRow)], opts...)
 	var resp *tablespb.Row
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetRow(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetRow, req, settings.GRPC, c.logger, "GetRow")
 		return err
 	}, opts...)
 	if err != nil {
@@ -553,9 +594,10 @@ func (c *gRPCClient) GetRow(ctx context.Context, req *tablespb.GetRowRequest, op
 }
 
 func (c *gRPCClient) ListRows(ctx context.Context, req *tablespb.ListRowsRequest, opts ...gax.CallOption) *RowIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListRows[0:len((*c.CallOptions).ListRows):len((*c.CallOptions).ListRows)], opts...)
 	it := &RowIterator{}
 	req = proto.Clone(req).(*tablespb.ListRowsRequest)
@@ -571,7 +613,7 @@ func (c *gRPCClient) ListRows(ctx context.Context, req *tablespb.ListRowsRequest
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListRows(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListRows, req, settings.GRPC, c.logger, "ListRows")
 			return err
 		}, opts...)
 		if err != nil {
@@ -598,19 +640,15 @@ func (c *gRPCClient) ListRows(ctx context.Context, req *tablespb.ListRowsRequest
 }
 
 func (c *gRPCClient) CreateRow(ctx context.Context, req *tablespb.CreateRowRequest, opts ...gax.CallOption) (*tablespb.Row, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateRow[0:len((*c.CallOptions).CreateRow):len((*c.CallOptions).CreateRow)], opts...)
 	var resp *tablespb.Row
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.CreateRow(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.CreateRow, req, settings.GRPC, c.logger, "CreateRow")
 		return err
 	}, opts...)
 	if err != nil {
@@ -620,19 +658,15 @@ func (c *gRPCClient) CreateRow(ctx context.Context, req *tablespb.CreateRowReque
 }
 
 func (c *gRPCClient) BatchCreateRows(ctx context.Context, req *tablespb.BatchCreateRowsRequest, opts ...gax.CallOption) (*tablespb.BatchCreateRowsResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).BatchCreateRows[0:len((*c.CallOptions).BatchCreateRows):len((*c.CallOptions).BatchCreateRows)], opts...)
 	var resp *tablespb.BatchCreateRowsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.BatchCreateRows(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.BatchCreateRows, req, settings.GRPC, c.logger, "BatchCreateRows")
 		return err
 	}, opts...)
 	if err != nil {
@@ -642,19 +676,15 @@ func (c *gRPCClient) BatchCreateRows(ctx context.Context, req *tablespb.BatchCre
 }
 
 func (c *gRPCClient) UpdateRow(ctx context.Context, req *tablespb.UpdateRowRequest, opts ...gax.CallOption) (*tablespb.Row, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "row.name", url.QueryEscape(req.GetRow().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "row.name", url.QueryEscape(req.GetRow().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateRow[0:len((*c.CallOptions).UpdateRow):len((*c.CallOptions).UpdateRow)], opts...)
 	var resp *tablespb.Row
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.UpdateRow(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.UpdateRow, req, settings.GRPC, c.logger, "UpdateRow")
 		return err
 	}, opts...)
 	if err != nil {
@@ -664,19 +694,15 @@ func (c *gRPCClient) UpdateRow(ctx context.Context, req *tablespb.UpdateRowReque
 }
 
 func (c *gRPCClient) BatchUpdateRows(ctx context.Context, req *tablespb.BatchUpdateRowsRequest, opts ...gax.CallOption) (*tablespb.BatchUpdateRowsResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).BatchUpdateRows[0:len((*c.CallOptions).BatchUpdateRows):len((*c.CallOptions).BatchUpdateRows)], opts...)
 	var resp *tablespb.BatchUpdateRowsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.BatchUpdateRows(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.BatchUpdateRows, req, settings.GRPC, c.logger, "BatchUpdateRows")
 		return err
 	}, opts...)
 	if err != nil {
@@ -686,36 +712,28 @@ func (c *gRPCClient) BatchUpdateRows(ctx context.Context, req *tablespb.BatchUpd
 }
 
 func (c *gRPCClient) DeleteRow(ctx context.Context, req *tablespb.DeleteRowRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteRow[0:len((*c.CallOptions).DeleteRow):len((*c.CallOptions).DeleteRow)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.client.DeleteRow(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.client.DeleteRow, req, settings.GRPC, c.logger, "DeleteRow")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *gRPCClient) BatchDeleteRows(ctx context.Context, req *tablespb.BatchDeleteRowsRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).BatchDeleteRows[0:len((*c.CallOptions).BatchDeleteRows):len((*c.CallOptions).BatchDeleteRows)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.client.BatchDeleteRows(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.client.BatchDeleteRows, req, settings.GRPC, c.logger, "BatchDeleteRows")
 		return err
 	}, opts...)
 	return err
@@ -729,10 +747,17 @@ func (c *restClient) GetTable(ctx context.Context, req *tablespb.GetTableRequest
 	}
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetTable[0:len((*c.CallOptions).GetTable):len((*c.CallOptions).GetTable)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &tablespb.Table{}
@@ -747,23 +772,13 @@ func (c *restClient) GetTable(ctx context.Context, req *tablespb.GetTableRequest
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetTable")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -796,6 +811,7 @@ func (c *restClient) ListTables(ctx context.Context, req *tablespb.ListTablesReq
 		baseUrl.Path += fmt.Sprintf("/v1alpha1/tables")
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetPageSize() != 0 {
 			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
 		}
@@ -806,7 +822,8 @@ func (c *restClient) ListTables(ctx context.Context, req *tablespb.ListTablesReq
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -817,23 +834,12 @@ func (c *restClient) ListTables(ctx context.Context, req *tablespb.ListTablesReq
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListTables")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -869,10 +875,17 @@ func (c *restClient) GetWorkspace(ctx context.Context, req *tablespb.GetWorkspac
 	}
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetWorkspace[0:len((*c.CallOptions).GetWorkspace):len((*c.CallOptions).GetWorkspace)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &tablespb.Workspace{}
@@ -887,23 +900,13 @@ func (c *restClient) GetWorkspace(ctx context.Context, req *tablespb.GetWorkspac
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetWorkspace")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -936,6 +939,7 @@ func (c *restClient) ListWorkspaces(ctx context.Context, req *tablespb.ListWorks
 		baseUrl.Path += fmt.Sprintf("/v1alpha1/workspaces")
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetPageSize() != 0 {
 			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
 		}
@@ -946,7 +950,8 @@ func (c *restClient) ListWorkspaces(ctx context.Context, req *tablespb.ListWorks
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -957,23 +962,12 @@ func (c *restClient) ListWorkspaces(ctx context.Context, req *tablespb.ListWorks
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListWorkspaces")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1010,6 +1004,7 @@ func (c *restClient) GetRow(ctx context.Context, req *tablespb.GetRowRequest, op
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v", req.GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetView() != 0 {
 		params.Add("view", fmt.Sprintf("%v", req.GetView()))
 	}
@@ -1017,9 +1012,11 @@ func (c *restClient) GetRow(ctx context.Context, req *tablespb.GetRowRequest, op
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetRow[0:len((*c.CallOptions).GetRow):len((*c.CallOptions).GetRow)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &tablespb.Row{}
@@ -1034,23 +1031,13 @@ func (c *restClient) GetRow(ctx context.Context, req *tablespb.GetRowRequest, op
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetRow")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1083,6 +1070,7 @@ func (c *restClient) ListRows(ctx context.Context, req *tablespb.ListRowsRequest
 		baseUrl.Path += fmt.Sprintf("/v1alpha1/%v/rows", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -1099,7 +1087,8 @@ func (c *restClient) ListRows(ctx context.Context, req *tablespb.ListRowsRequest
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -1110,23 +1099,12 @@ func (c *restClient) ListRows(ctx context.Context, req *tablespb.ListRowsRequest
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListRows")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1170,6 +1148,7 @@ func (c *restClient) CreateRow(ctx context.Context, req *tablespb.CreateRowReque
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v/rows", req.GetParent())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetView() != 0 {
 		params.Add("view", fmt.Sprintf("%v", req.GetView()))
 	}
@@ -1177,9 +1156,11 @@ func (c *restClient) CreateRow(ctx context.Context, req *tablespb.CreateRowReque
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).CreateRow[0:len((*c.CallOptions).CreateRow):len((*c.CallOptions).CreateRow)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &tablespb.Row{}
@@ -1194,23 +1175,13 @@ func (c *restClient) CreateRow(ctx context.Context, req *tablespb.CreateRowReque
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateRow")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1235,10 +1206,17 @@ func (c *restClient) BatchCreateRows(ctx context.Context, req *tablespb.BatchCre
 	}
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v/rows:batchCreate", req.GetParent())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).BatchCreateRows[0:len((*c.CallOptions).BatchCreateRows):len((*c.CallOptions).BatchCreateRows)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &tablespb.BatchCreateRowsResponse{}
@@ -1253,23 +1231,13 @@ func (c *restClient) BatchCreateRows(ctx context.Context, req *tablespb.BatchCre
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "BatchCreateRows")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1296,12 +1264,13 @@ func (c *restClient) UpdateRow(ctx context.Context, req *tablespb.UpdateRowReque
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v", req.GetRow().GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetUpdateMask() != nil {
-		updateMask, err := protojson.Marshal(req.GetUpdateMask())
+		field, err := protojson.Marshal(req.GetUpdateMask())
 		if err != nil {
 			return nil, err
 		}
-		params.Add("updateMask", string(updateMask))
+		params.Add("updateMask", string(field[1:len(field)-1]))
 	}
 	if req.GetView() != 0 {
 		params.Add("view", fmt.Sprintf("%v", req.GetView()))
@@ -1310,9 +1279,11 @@ func (c *restClient) UpdateRow(ctx context.Context, req *tablespb.UpdateRowReque
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "row.name", url.QueryEscape(req.GetRow().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "row.name", url.QueryEscape(req.GetRow().GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateRow[0:len((*c.CallOptions).UpdateRow):len((*c.CallOptions).UpdateRow)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &tablespb.Row{}
@@ -1327,23 +1298,13 @@ func (c *restClient) UpdateRow(ctx context.Context, req *tablespb.UpdateRowReque
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateRow")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1368,10 +1329,17 @@ func (c *restClient) BatchUpdateRows(ctx context.Context, req *tablespb.BatchUpd
 	}
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v/rows:batchUpdate", req.GetParent())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).BatchUpdateRows[0:len((*c.CallOptions).BatchUpdateRows):len((*c.CallOptions).BatchUpdateRows)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &tablespb.BatchUpdateRowsResponse{}
@@ -1386,23 +1354,13 @@ func (c *restClient) BatchUpdateRows(ctx context.Context, req *tablespb.BatchUpd
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "BatchUpdateRows")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1421,10 +1379,17 @@ func (c *restClient) DeleteRow(ctx context.Context, req *tablespb.DeleteRowReque
 	}
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -1436,15 +1401,8 @@ func (c *restClient) DeleteRow(ctx context.Context, req *tablespb.DeleteRowReque
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteRow")
+		return err
 	}, opts...)
 }
 
@@ -1462,10 +1420,17 @@ func (c *restClient) BatchDeleteRows(ctx context.Context, req *tablespb.BatchDel
 	}
 	baseUrl.Path += fmt.Sprintf("/v1alpha1/%v/rows:batchDelete", req.GetParent())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -1477,155 +1442,7 @@ func (c *restClient) BatchDeleteRows(ctx context.Context, req *tablespb.BatchDel
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "BatchDeleteRows")
+		return err
 	}, opts...)
-}
-
-// RowIterator manages a stream of *tablespb.Row.
-type RowIterator struct {
-	items    []*tablespb.Row
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*tablespb.Row, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *RowIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *RowIterator) Next() (*tablespb.Row, error) {
-	var item *tablespb.Row
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *RowIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *RowIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// TableIterator manages a stream of *tablespb.Table.
-type TableIterator struct {
-	items    []*tablespb.Table
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*tablespb.Table, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *TableIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *TableIterator) Next() (*tablespb.Table, error) {
-	var item *tablespb.Table
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *TableIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *TableIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// WorkspaceIterator manages a stream of *tablespb.Workspace.
-type WorkspaceIterator struct {
-	items    []*tablespb.Workspace
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*tablespb.Workspace, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *WorkspaceIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *WorkspaceIterator) Next() (*tablespb.Workspace, error) {
-	var item *tablespb.Workspace
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *WorkspaceIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *WorkspaceIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
 }

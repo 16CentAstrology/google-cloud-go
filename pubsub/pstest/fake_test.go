@@ -17,6 +17,7 @@ package pstest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -27,13 +28,15 @@ import (
 	"testing"
 	"time"
 
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/internal/testutil"
 	pb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
-	"google.golang.org/genproto/protobuf/field_mask"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
+	field_mask "google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -60,6 +63,47 @@ func TestNewServerWithPort(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
+}
+
+func TestNewServerWithCallback(t *testing.T) {
+	// Allocate an available port to use with NewServerWithPort and then close it so it's available.
+	// Note: There is no guarantee that the port does not become used between closing
+	// the listener and creating the new server with NewServerWithPort, but the chances are
+	// very small.
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+
+	additionalFake := struct {
+		iampb.UnimplementedIAMPolicyServer
+	}{}
+
+	verifyCallback := false
+	callback := func(grpc *grpc.Server) {
+		// register something
+		iampb.RegisterIAMPolicyServer(grpc, &additionalFake)
+		verifyCallback = true
+	}
+
+	// Pass a non 0 port to demonstrate we can pass a hardcoded port for the server to listen on
+	srv := NewServerWithCallback(port, callback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+
+	conn, err := grpc.NewClient(srv.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	if !verifyCallback {
+		t.Fatal("callback was not invoked")
+	}
 }
 
 func TestTopics(t *testing.T) {
@@ -132,7 +176,7 @@ func TestTopics(t *testing.T) {
 			Topic: topics[1].Name,
 		})
 		expectedErr := status.Errorf(codes.FailedPrecondition, "topic %q used as deadLetter for %s", topics[1].Name, s.Name)
-		if err == nil || err.Error() != expectedErr.Error() {
+		if err == nil || !errors.Is(err, expectedErr) {
 			t.Fatalf("returned a different error than the expected one. \nReceived '%s'; \nExpected: '%s'", err, expectedErr)
 		}
 	})
@@ -218,8 +262,8 @@ func TestSubscriptions(t *testing.T) {
 			},
 		})
 		expectedErr := status.Errorf(codes.NotFound, "deadLetter topic \"projects/P/topics/nonexisting\"")
-		if err == nil || err.Error() != expectedErr.Error() {
-			t.Fatalf("expected subscription creation to fail with a specific err but it didn't. \nError: %s \nExepcted err: %s", err, expectedErr)
+		if err == nil || !errors.Is(err, expectedErr) {
+			t.Fatalf("expected subscription creation to fail with a specific err but it didn't. \nError: %s \nExpected err: %s", err, expectedErr)
 		}
 		_, err = server.GServer.DeleteTopic(ctx, &pb.DeleteTopicRequest{
 			Topic: topic.Name,
@@ -346,8 +390,8 @@ func TestSubscriptionDeadLetter(t *testing.T) {
 
 			}
 			for _, m := range pull.ReceivedMessages {
-				if int32(i) != m.DeliveryAttempt {
-					t.Fatalf("message delivery attempt not the expected one. expected: %d, actual: %d", i, m.DeliveryAttempt)
+				if int32(i+1) != m.DeliveryAttempt {
+					t.Fatalf("message delivery attempt not the expected one. expected: %d, actual: %d", i+1, m.DeliveryAttempt)
 				}
 				_, err := server.GServer.ModifyAckDeadline(ctx, &pb.ModifyAckDeadlineRequest{
 					Subscription:       sub.Name,
@@ -472,13 +516,19 @@ func TestPublishOrdered(t *testing.T) {
 }
 
 func TestClearMessages(t *testing.T) {
-	s := NewServer()
-	defer s.Close()
+	pclient, sclient, s, cleanup := newFake(context.TODO(), t)
+	defer cleanup()
+
+	top := mustCreateTopic(context.TODO(), t, pclient, &pb.Topic{Name: "projects/P/topics/T"})
+	sub := mustCreateSubscription(context.TODO(), t, sclient, &pb.Subscription{
+		Name:               "projects/P/subscriptions/S",
+		Topic:              top.Name,
+		AckDeadlineSeconds: 10,
+	})
 
 	for i := 0; i < 3; i++ {
-		s.Publish("projects/p/topics/t", []byte("hello"), nil)
+		s.Publish(top.Name, []byte("hello"), nil)
 	}
-	s.Wait()
 	msgs := s.Messages()
 	if got, want := len(msgs), 3; got != want {
 		t.Errorf("got %d messages, want %d", got, want)
@@ -488,13 +538,21 @@ func TestClearMessages(t *testing.T) {
 	if got, want := len(msgs), 0; got != want {
 		t.Errorf("got %d messages, want %d", got, want)
 	}
+
+	res, err := sclient.Pull(context.Background(), &pb.PullRequest{Subscription: sub.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.ReceivedMessages) != 0 {
+		t.Errorf("got %d messages, want zero", len(res.ReceivedMessages))
+	}
 }
 
 // Note: this sets the fake's "now" time, so it is sensitive to concurrent changes to "now".
-func publish(t *testing.T, pclient pb.PublisherClient, topic *pb.Topic, messages []*pb.PubsubMessage) map[string]*pb.PubsubMessage {
+func publish(t *testing.T, srv *Server, pclient pb.PublisherClient, topic *pb.Topic, messages []*pb.PubsubMessage) map[string]*pb.PubsubMessage {
 	pubTime := time.Now()
-	now.Store(func() time.Time { return pubTime })
-	defer func() { now.Store(time.Now) }()
+	srv.SetTimeNowFunc(func() time.Time { return pubTime })
+	defer srv.SetTimeNowFunc(time.Now)
 
 	res, err := pclient.Publish(context.Background(), &pb.PublishRequest{
 		Topic:    topic.Name,
@@ -517,7 +575,7 @@ func publish(t *testing.T, pclient pb.PublisherClient, topic *pb.Topic, messages
 }
 
 func TestPull(t *testing.T) {
-	pclient, sclient, _, cleanup := newFake(context.TODO(), t)
+	pclient, sclient, srv, cleanup := newFake(context.TODO(), t)
 	defer cleanup()
 
 	top := mustCreateTopic(context.TODO(), t, pclient, &pb.Topic{Name: "projects/P/topics/T"})
@@ -527,7 +585,7 @@ func TestPull(t *testing.T) {
 		AckDeadlineSeconds: 10,
 	})
 
-	want := publish(t, pclient, top, []*pb.PubsubMessage{
+	want := publish(t, srv, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 		{Data: []byte("d3")},
@@ -548,22 +606,36 @@ func TestPull(t *testing.T) {
 
 func TestStreamingPull(t *testing.T) {
 	// A simple test of streaming pull.
-	pclient, sclient, _, cleanup := newFake(context.TODO(), t)
+	pclient, sclient, srv, cleanup := newFake(context.TODO(), t)
 	defer cleanup()
+
+	deadLetterTopic := mustCreateTopic(context.TODO(), t, pclient, &pb.Topic{
+		Name: "projects/P/topics/deadLetter",
+	})
 
 	top := mustCreateTopic(context.TODO(), t, pclient, &pb.Topic{Name: "projects/P/topics/T"})
 	sub := mustCreateSubscription(context.TODO(), t, sclient, &pb.Subscription{
 		Name:               "projects/P/subscriptions/S",
 		Topic:              top.Name,
 		AckDeadlineSeconds: 10,
+		DeadLetterPolicy: &pb.DeadLetterPolicy{
+			DeadLetterTopic:     deadLetterTopic.Name,
+			MaxDeliveryAttempts: 3,
+		},
 	})
 
-	want := publish(t, pclient, top, []*pb.PubsubMessage{
+	want := publish(t, srv, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 		{Data: []byte("d3")},
 	})
-	got := pubsubMessages(streamingPullN(context.TODO(), t, len(want), sclient, sub))
+	received := streamingPullN(context.TODO(), t, len(want), sclient, sub)
+	for _, m := range received {
+		if m.DeliveryAttempt != 1 {
+			t.Errorf("got DeliveryAttempt==%d, want 1", m.DeliveryAttempt)
+		}
+	}
+	got := pubsubMessages(received)
 	if diff := testutil.Diff(got, want); diff != "" {
 		t.Error(diff)
 	}
@@ -572,7 +644,7 @@ func TestStreamingPull(t *testing.T) {
 // This test acks each message as it arrives and makes sure we don't see dups.
 func TestStreamingPullAck(t *testing.T) {
 	minAckDeadlineSecs = 1
-	pclient, sclient, _, cleanup := newFake(context.TODO(), t)
+	pclient, sclient, srv, cleanup := newFake(context.TODO(), t)
 	defer cleanup()
 
 	top := mustCreateTopic(context.TODO(), t, pclient, &pb.Topic{Name: "projects/P/topics/T"})
@@ -582,7 +654,7 @@ func TestStreamingPullAck(t *testing.T) {
 		AckDeadlineSeconds: 1,
 	})
 
-	_ = publish(t, pclient, top, []*pb.PubsubMessage{
+	_ = publish(t, srv, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 		{Data: []byte("d3")},
@@ -595,7 +667,7 @@ func TestStreamingPullAck(t *testing.T) {
 
 	for i := 0; i < 4; i++ {
 		res, err := spc.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -633,7 +705,7 @@ func TestAcknowledge(t *testing.T) {
 		AckDeadlineSeconds: 10,
 	})
 
-	publish(t, pclient, top, []*pb.PubsubMessage{
+	publish(t, srv, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 		{Data: []byte("d3")},
@@ -662,7 +734,7 @@ func TestAcknowledge(t *testing.T) {
 
 func TestModAck(t *testing.T) {
 	ctx := context.Background()
-	pclient, sclient, _, cleanup := newFake(context.TODO(), t)
+	pclient, sclient, srv, cleanup := newFake(context.TODO(), t)
 	defer cleanup()
 
 	top := mustCreateTopic(context.TODO(), t, pclient, &pb.Topic{Name: "projects/P/topics/T"})
@@ -672,7 +744,7 @@ func TestModAck(t *testing.T) {
 		AckDeadlineSeconds: 10,
 	})
 
-	publish(t, pclient, top, []*pb.PubsubMessage{
+	publish(t, srv, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 		{Data: []byte("d3")},
@@ -698,7 +770,7 @@ func TestModAck(t *testing.T) {
 
 func TestAckDeadline(t *testing.T) {
 	// Messages should be resent after they expire.
-	pclient, sclient, _, cleanup := newFake(context.TODO(), t)
+	pclient, sclient, srv, cleanup := newFake(context.TODO(), t)
 	defer cleanup()
 
 	minAckDeadlineSecs = 2
@@ -709,7 +781,7 @@ func TestAckDeadline(t *testing.T) {
 		AckDeadlineSeconds: minAckDeadlineSecs,
 	})
 
-	_ = publish(t, pclient, top, []*pb.PubsubMessage{
+	_ = publish(t, srv, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 		{Data: []byte("d3")},
@@ -726,7 +798,7 @@ func TestAckDeadline(t *testing.T) {
 	})
 	for {
 		res, err := spc.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -745,7 +817,7 @@ func TestAckDeadline(t *testing.T) {
 
 func TestMultiSubs(t *testing.T) {
 	// Each subscription gets every message.
-	pclient, sclient, _, cleanup := newFake(context.TODO(), t)
+	pclient, sclient, srv, cleanup := newFake(context.TODO(), t)
 	defer cleanup()
 
 	top := mustCreateTopic(context.TODO(), t, pclient, &pb.Topic{Name: "projects/P/topics/T"})
@@ -760,7 +832,7 @@ func TestMultiSubs(t *testing.T) {
 		AckDeadlineSeconds: 10,
 	})
 
-	want := publish(t, pclient, top, []*pb.PubsubMessage{
+	want := publish(t, srv, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 		{Data: []byte("d3")},
@@ -782,7 +854,7 @@ func TestMultiSubs(t *testing.T) {
 func TestMultiStreams(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	pclient, sclient, _, cleanup := newFake(ctx, t)
+	pclient, sclient, srv, cleanup := newFake(ctx, t)
 	defer cleanup()
 
 	top := mustCreateTopic(ctx, t, pclient, &pb.Topic{Name: "projects/P/topics/T"})
@@ -813,7 +885,7 @@ func TestMultiStreams(t *testing.T) {
 		close(st2Received)
 	}()
 
-	publish(t, pclient, top, []*pb.PubsubMessage{
+	publish(t, srv, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 	})
@@ -941,7 +1013,7 @@ func TestModAck_Race(t *testing.T) {
 		AckDeadlineSeconds: 10,
 	})
 
-	publish(t, pclient, top, []*pb.PubsubMessage{
+	publish(t, server, pclient, top, []*pb.PubsubMessage{
 		{Data: []byte("d1")},
 		{Data: []byte("d2")},
 		{Data: []byte("d3")},
@@ -1044,24 +1116,40 @@ func TestUpdateRetryPolicy(t *testing.T) {
 	}
 }
 
-func TestUpdateFilter(t *testing.T) {
+func TestSubscriptionFilter(t *testing.T) {
 	ctx := context.Background()
 	pclient, sclient, _, cleanup := newFake(ctx, t)
 	defer cleanup()
 
 	top := mustCreateTopic(ctx, t, pclient, &pb.Topic{Name: "projects/P/topics/T"})
+
+	// Creating a subscription with invalid filter should return an error.
+	_, err := sclient.CreateSubscription(ctx, &pb.Subscription{
+		Name:                  "projects/p/subscriptions/s",
+		Topic:                 top.Name,
+		AckDeadlineSeconds:    30,
+		EnableMessageOrdering: true,
+		Filter:                "bad filter",
+	})
+	if err == nil {
+		t.Fatal("expected bad filter error, got nil")
+	}
+	if st := status.Convert(err); st.Code() != codes.InvalidArgument {
+		t.Fatalf("got err status: %v, want: %v", st.Code(), codes.InvalidArgument)
+	}
+
 	sub := mustCreateSubscription(ctx, t, sclient, &pb.Subscription{
 		AckDeadlineSeconds: minAckDeadlineSecs,
 		Name:               "projects/P/subscriptions/S",
 		Topic:              top.Name,
-		Filter:             "some-filter",
+		Filter:             "NOT attributes:foo",
 	})
 
 	update := &pb.Subscription{
 		AckDeadlineSeconds: sub.AckDeadlineSeconds,
 		Name:               sub.Name,
 		Topic:              top.Name,
-		Filter:             "new-filter",
+		Filter:             "NOT attributes:bar",
 	}
 
 	updated := mustUpdateSubscription(ctx, t, sclient, &pb.UpdateSubscriptionRequest{
@@ -1071,6 +1159,19 @@ func TestUpdateFilter(t *testing.T) {
 
 	if got, want := updated.Filter, update.Filter; got != want {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// Updating a subscription with bad filter should return an error.
+	update.Filter = "bad filter"
+	updated, err = sclient.UpdateSubscription(ctx, &pb.UpdateSubscriptionRequest{
+		Subscription: update,
+		UpdateMask:   &field_mask.FieldMask{Paths: []string{"filter"}},
+	})
+	if err == nil {
+		t.Fatal("expected bad filter error, got nil")
+	}
+	if st := status.Convert(err); st.Code() != codes.InvalidArgument {
+		t.Fatalf("got err status: %v, want: %v", st.Code(), codes.InvalidArgument)
 	}
 }
 
@@ -1502,6 +1603,7 @@ func TestStreaming_SubscriptionProperties(t *testing.T) {
 	}
 }
 
+// Test switching between the various subscription types: push to endpoint, bigquery, cloud storage, and pull.
 func TestSubscriptionPushPull(t *testing.T) {
 	ctx := context.Background()
 	pclient, sclient, _, cleanup := newFake(ctx, t)
@@ -1514,6 +1616,9 @@ func TestSubscriptionPushPull(t *testing.T) {
 	// Create a push subscription.
 	pc := &pb.PushConfig{
 		PushEndpoint: "some-endpoint",
+		Wrapper: &pb.PushConfig_PubsubWrapper_{
+			PubsubWrapper: &pb.PushConfig_PubsubWrapper{},
+		},
 	}
 	got := mustCreateSubscription(ctx, t, sclient, &pb.Subscription{
 		AckDeadlineSeconds: minAckDeadlineSecs,
@@ -1547,7 +1652,7 @@ func TestSubscriptionPushPull(t *testing.T) {
 	}
 
 	// Switch back to a pull subscription.
-	updateSub.BigqueryConfig = &pb.BigQueryConfig{}
+	updateSub.BigqueryConfig = nil
 	got = mustUpdateSubscription(ctx, t, sclient, &pb.UpdateSubscriptionRequest{
 		Subscription: updateSub,
 		UpdateMask:   &field_mask.FieldMask{Paths: []string{"bigquery_config"}},
@@ -1555,8 +1660,23 @@ func TestSubscriptionPushPull(t *testing.T) {
 	if diff := testutil.Diff(got.PushConfig, new(pb.PushConfig)); diff != "" {
 		t.Errorf("sub.PushConfig should be zero value\n%s", diff)
 	}
-	if diff := testutil.Diff(got.BigqueryConfig, new(pb.BigQueryConfig)); diff != "" {
-		t.Errorf("sub.BigqueryConfig should be zero value\n%s", diff)
+	if got.BigqueryConfig != nil {
+		t.Errorf("sub.BigqueryConfig should be nil, got %s", got.BigqueryConfig)
+	}
+
+	// Update the subscription to write to Cloud Storage.
+	csc := &pb.CloudStorageConfig{
+		Bucket: "fake-bucket",
+	}
+	updateSub.CloudStorageConfig = csc
+	got = mustUpdateSubscription(ctx, t, sclient, &pb.UpdateSubscriptionRequest{
+		Subscription: updateSub,
+		UpdateMask:   &field_mask.FieldMask{Paths: []string{"cloud_storage_config"}},
+	})
+	want2 := csc
+	want2.State = pb.CloudStorageConfig_ACTIVE
+	if diff := testutil.Diff(got.CloudStorageConfig, want2); diff != "" {
+		t.Errorf("sub.CloudStorageConfig mismatch: %s", diff)
 	}
 }
 
@@ -1598,4 +1718,34 @@ func TestSubscriptionMessageOrdering(t *testing.T) {
 		}
 		ids = ids[len(pull.ReceivedMessages):]
 	}
+}
+
+func TestSubscriptionRetention(t *testing.T) {
+	// Check that subscriptions with undelivered messages past the
+	// retention deadline do not trigger a panic.
+
+	ctx := context.Background()
+	s := NewServer()
+	defer s.Close()
+
+	start := time.Now()
+	s.SetTimeNowFunc(func() time.Time { return start })
+
+	const topicName = "projects/p/topics/t"
+	top, err := s.GServer.CreateTopic(ctx, &pb.Topic{Name: topicName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GServer.CreateSubscription(ctx, &pb.Subscription{
+		Name:                  "projects/p/subscriptions/s",
+		Topic:                 top.Name,
+		AckDeadlineSeconds:    30,
+		EnableMessageOrdering: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Publish(topicName, []byte("payload"), nil)
+
+	s.SetTimeNowFunc(func() time.Time { return start.Add(retentionDuration + 1) })
+	time.Sleep(1 * time.Second)
 }

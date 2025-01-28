@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -40,32 +40,24 @@ func ExampleNewCloudShellClient() {
 	_ = c
 }
 
-func ExampleCloudShellClient_GetEnvironment() {
+func ExampleNewCloudShellRESTClient() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
 	// - It may require correct/in-range values for request initialization.
 	// - It may require specifying regional endpoints when creating the service client as shown in:
 	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := shell.NewCloudShellClient(ctx)
+	c, err := shell.NewCloudShellRESTClient(ctx)
 	if err != nil {
 		// TODO: Handle error.
 	}
 	defer c.Close()
 
-	req := &shellpb.GetEnvironmentRequest{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/shell/apiv1/shellpb#GetEnvironmentRequest.
-	}
-	resp, err := c.GetEnvironment(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
+	// TODO: Use client.
+	_ = c
 }
 
-func ExampleCloudShellClient_StartEnvironment() {
+func ExampleCloudShellClient_AddPublicKey() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -78,11 +70,11 @@ func ExampleCloudShellClient_StartEnvironment() {
 	}
 	defer c.Close()
 
-	req := &shellpb.StartEnvironmentRequest{
+	req := &shellpb.AddPublicKeyRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/shell/apiv1/shellpb#StartEnvironmentRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/shell/apiv1/shellpb#AddPublicKeyRequest.
 	}
-	op, err := c.StartEnvironment(ctx, req)
+	op, err := c.AddPublicKey(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -125,7 +117,7 @@ func ExampleCloudShellClient_AuthorizeEnvironment() {
 	_ = resp
 }
 
-func ExampleCloudShellClient_AddPublicKey() {
+func ExampleCloudShellClient_GetEnvironment() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -138,16 +130,11 @@ func ExampleCloudShellClient_AddPublicKey() {
 	}
 	defer c.Close()
 
-	req := &shellpb.AddPublicKeyRequest{
+	req := &shellpb.GetEnvironmentRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/shell/apiv1/shellpb#AddPublicKeyRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/shell/apiv1/shellpb#GetEnvironmentRequest.
 	}
-	op, err := c.AddPublicKey(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	resp, err := op.Wait(ctx)
+	resp, err := c.GetEnvironment(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -173,6 +160,36 @@ func ExampleCloudShellClient_RemovePublicKey() {
 		// See https://pkg.go.dev/cloud.google.com/go/shell/apiv1/shellpb#RemovePublicKeyRequest.
 	}
 	op, err := c.RemovePublicKey(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleCloudShellClient_StartEnvironment() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := shell.NewCloudShellClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &shellpb.StartEnvironmentRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/shell/apiv1/shellpb#StartEnvironmentRequest.
+	}
+	op, err := c.StartEnvironment(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}

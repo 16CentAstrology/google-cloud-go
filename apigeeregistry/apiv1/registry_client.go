@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,23 +19,23 @@ package apigeeregistry
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/url"
 	"time"
 
+	apigeeregistrypb "cloud.google.com/go/apigeeregistry/apiv1/apigeeregistrypb"
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	gax "github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httpbodypb "google.golang.org/genproto/googleapis/api/httpbody"
-	apigeeregistrypb "google.golang.org/genproto/googleapis/cloud/apigeeregistry/v1"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -92,10 +92,13 @@ type RegistryCallOptions struct {
 func defaultRegistryGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("apigeeregistry.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("apigeeregistry.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("apigeeregistry.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://apigeeregistry.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -104,6 +107,7 @@ func defaultRegistryGRPCClientOptions() []option.ClientOption {
 func defaultRegistryCallOptions() *RegistryCallOptions {
 	return &RegistryCallOptions{
 		ListApis: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -118,6 +122,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		GetApi: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -132,6 +137,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		CreateApi: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -146,6 +152,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		UpdateApi: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -160,6 +167,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		DeleteApi: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -174,6 +182,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		ListApiVersions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -188,6 +197,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		GetApiVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -202,6 +212,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		CreateApiVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -216,6 +227,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		UpdateApiVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -230,6 +242,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		DeleteApiVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -244,6 +257,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		ListApiSpecs: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -258,6 +272,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		GetApiSpec: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -272,6 +287,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		GetApiSpecContents: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -286,6 +302,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		CreateApiSpec: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -300,6 +317,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		UpdateApiSpec: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -314,6 +332,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		DeleteApiSpec: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -328,6 +347,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		TagApiSpecRevision: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -342,6 +362,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		ListApiSpecRevisions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -355,8 +376,11 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 				})
 			}),
 		},
-		RollbackApiSpec: []gax.CallOption{},
+		RollbackApiSpec: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 		DeleteApiSpecRevision: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -371,6 +395,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		ListApiDeployments: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -385,6 +410,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		GetApiDeployment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -399,6 +425,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		CreateApiDeployment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -413,6 +440,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		UpdateApiDeployment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -427,6 +455,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		DeleteApiDeployment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -441,6 +470,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		TagApiDeploymentRevision: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -455,6 +485,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		ListApiDeploymentRevisions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -468,8 +499,11 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 				})
 			}),
 		},
-		RollbackApiDeployment: []gax.CallOption{},
+		RollbackApiDeployment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 		DeleteApiDeploymentRevision: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -484,6 +518,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		ListArtifacts: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -498,6 +533,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		GetArtifact: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -512,6 +548,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		GetArtifactContents: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -526,6 +563,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		CreateArtifact: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -540,6 +578,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		ReplaceArtifact: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -554,6 +593,7 @@ func defaultRegistryCallOptions() *RegistryCallOptions {
 			}),
 		},
 		DeleteArtifact: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Aborted,
@@ -918,9 +958,6 @@ type registryGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing RegistryClient
 	CallOptions **RegistryCallOptions
 
@@ -934,7 +971,9 @@ type registryGRPCClient struct {
 	locationsClient locationpb.LocationsClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewRegistryClient creates a new registry client based on gRPC.
@@ -951,11 +990,6 @@ func NewRegistryClient(ctx context.Context, opts ...option.ClientOption) (*Regis
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -964,9 +998,9 @@ func NewRegistryClient(ctx context.Context, opts ...option.ClientOption) (*Regis
 
 	c := &registryGRPCClient{
 		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
 		registryClient:   apigeeregistrypb.NewRegistryClient(connPool),
 		CallOptions:      &client.CallOptions,
+		logger:           internaloption.GetLogger(opts),
 		operationsClient: longrunningpb.NewOperationsClient(connPool),
 		iamPolicyClient:  iampb.NewIAMPolicyClient(connPool),
 		locationsClient:  locationpb.NewLocationsClient(connPool),
@@ -990,9 +1024,11 @@ func (c *registryGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *registryGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -1002,9 +1038,10 @@ func (c *registryGRPCClient) Close() error {
 }
 
 func (c *registryGRPCClient) ListApis(ctx context.Context, req *apigeeregistrypb.ListApisRequest, opts ...gax.CallOption) *ApiIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListApis[0:len((*c.CallOptions).ListApis):len((*c.CallOptions).ListApis)], opts...)
 	it := &ApiIterator{}
 	req = proto.Clone(req).(*apigeeregistrypb.ListApisRequest)
@@ -1020,7 +1057,7 @@ func (c *registryGRPCClient) ListApis(ctx context.Context, req *apigeeregistrypb
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.registryClient.ListApis(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.registryClient.ListApis, req, settings.GRPC, c.logger, "ListApis")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1047,19 +1084,15 @@ func (c *registryGRPCClient) ListApis(ctx context.Context, req *apigeeregistrypb
 }
 
 func (c *registryGRPCClient) GetApi(ctx context.Context, req *apigeeregistrypb.GetApiRequest, opts ...gax.CallOption) (*apigeeregistrypb.Api, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetApi[0:len((*c.CallOptions).GetApi):len((*c.CallOptions).GetApi)], opts...)
 	var resp *apigeeregistrypb.Api
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.GetApi(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.GetApi, req, settings.GRPC, c.logger, "GetApi")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1069,19 +1102,15 @@ func (c *registryGRPCClient) GetApi(ctx context.Context, req *apigeeregistrypb.G
 }
 
 func (c *registryGRPCClient) CreateApi(ctx context.Context, req *apigeeregistrypb.CreateApiRequest, opts ...gax.CallOption) (*apigeeregistrypb.Api, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateApi[0:len((*c.CallOptions).CreateApi):len((*c.CallOptions).CreateApi)], opts...)
 	var resp *apigeeregistrypb.Api
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.CreateApi(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.CreateApi, req, settings.GRPC, c.logger, "CreateApi")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1091,19 +1120,15 @@ func (c *registryGRPCClient) CreateApi(ctx context.Context, req *apigeeregistryp
 }
 
 func (c *registryGRPCClient) UpdateApi(ctx context.Context, req *apigeeregistrypb.UpdateApiRequest, opts ...gax.CallOption) (*apigeeregistrypb.Api, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "api.name", url.QueryEscape(req.GetApi().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "api.name", url.QueryEscape(req.GetApi().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateApi[0:len((*c.CallOptions).UpdateApi):len((*c.CallOptions).UpdateApi)], opts...)
 	var resp *apigeeregistrypb.Api
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.UpdateApi(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.UpdateApi, req, settings.GRPC, c.logger, "UpdateApi")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1113,27 +1138,24 @@ func (c *registryGRPCClient) UpdateApi(ctx context.Context, req *apigeeregistryp
 }
 
 func (c *registryGRPCClient) DeleteApi(ctx context.Context, req *apigeeregistrypb.DeleteApiRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteApi[0:len((*c.CallOptions).DeleteApi):len((*c.CallOptions).DeleteApi)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.registryClient.DeleteApi(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.registryClient.DeleteApi, req, settings.GRPC, c.logger, "DeleteApi")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *registryGRPCClient) ListApiVersions(ctx context.Context, req *apigeeregistrypb.ListApiVersionsRequest, opts ...gax.CallOption) *ApiVersionIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListApiVersions[0:len((*c.CallOptions).ListApiVersions):len((*c.CallOptions).ListApiVersions)], opts...)
 	it := &ApiVersionIterator{}
 	req = proto.Clone(req).(*apigeeregistrypb.ListApiVersionsRequest)
@@ -1149,7 +1171,7 @@ func (c *registryGRPCClient) ListApiVersions(ctx context.Context, req *apigeereg
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.registryClient.ListApiVersions(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.registryClient.ListApiVersions, req, settings.GRPC, c.logger, "ListApiVersions")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1176,19 +1198,15 @@ func (c *registryGRPCClient) ListApiVersions(ctx context.Context, req *apigeereg
 }
 
 func (c *registryGRPCClient) GetApiVersion(ctx context.Context, req *apigeeregistrypb.GetApiVersionRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiVersion, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetApiVersion[0:len((*c.CallOptions).GetApiVersion):len((*c.CallOptions).GetApiVersion)], opts...)
 	var resp *apigeeregistrypb.ApiVersion
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.GetApiVersion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.GetApiVersion, req, settings.GRPC, c.logger, "GetApiVersion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1198,19 +1216,15 @@ func (c *registryGRPCClient) GetApiVersion(ctx context.Context, req *apigeeregis
 }
 
 func (c *registryGRPCClient) CreateApiVersion(ctx context.Context, req *apigeeregistrypb.CreateApiVersionRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiVersion, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateApiVersion[0:len((*c.CallOptions).CreateApiVersion):len((*c.CallOptions).CreateApiVersion)], opts...)
 	var resp *apigeeregistrypb.ApiVersion
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.CreateApiVersion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.CreateApiVersion, req, settings.GRPC, c.logger, "CreateApiVersion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1220,19 +1234,15 @@ func (c *registryGRPCClient) CreateApiVersion(ctx context.Context, req *apigeere
 }
 
 func (c *registryGRPCClient) UpdateApiVersion(ctx context.Context, req *apigeeregistrypb.UpdateApiVersionRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiVersion, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "api_version.name", url.QueryEscape(req.GetApiVersion().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "api_version.name", url.QueryEscape(req.GetApiVersion().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateApiVersion[0:len((*c.CallOptions).UpdateApiVersion):len((*c.CallOptions).UpdateApiVersion)], opts...)
 	var resp *apigeeregistrypb.ApiVersion
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.UpdateApiVersion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.UpdateApiVersion, req, settings.GRPC, c.logger, "UpdateApiVersion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1242,27 +1252,24 @@ func (c *registryGRPCClient) UpdateApiVersion(ctx context.Context, req *apigeere
 }
 
 func (c *registryGRPCClient) DeleteApiVersion(ctx context.Context, req *apigeeregistrypb.DeleteApiVersionRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteApiVersion[0:len((*c.CallOptions).DeleteApiVersion):len((*c.CallOptions).DeleteApiVersion)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.registryClient.DeleteApiVersion(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.registryClient.DeleteApiVersion, req, settings.GRPC, c.logger, "DeleteApiVersion")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *registryGRPCClient) ListApiSpecs(ctx context.Context, req *apigeeregistrypb.ListApiSpecsRequest, opts ...gax.CallOption) *ApiSpecIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListApiSpecs[0:len((*c.CallOptions).ListApiSpecs):len((*c.CallOptions).ListApiSpecs)], opts...)
 	it := &ApiSpecIterator{}
 	req = proto.Clone(req).(*apigeeregistrypb.ListApiSpecsRequest)
@@ -1278,7 +1285,7 @@ func (c *registryGRPCClient) ListApiSpecs(ctx context.Context, req *apigeeregist
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.registryClient.ListApiSpecs(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.registryClient.ListApiSpecs, req, settings.GRPC, c.logger, "ListApiSpecs")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1305,19 +1312,15 @@ func (c *registryGRPCClient) ListApiSpecs(ctx context.Context, req *apigeeregist
 }
 
 func (c *registryGRPCClient) GetApiSpec(ctx context.Context, req *apigeeregistrypb.GetApiSpecRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiSpec, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetApiSpec[0:len((*c.CallOptions).GetApiSpec):len((*c.CallOptions).GetApiSpec)], opts...)
 	var resp *apigeeregistrypb.ApiSpec
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.GetApiSpec(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.GetApiSpec, req, settings.GRPC, c.logger, "GetApiSpec")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1327,19 +1330,15 @@ func (c *registryGRPCClient) GetApiSpec(ctx context.Context, req *apigeeregistry
 }
 
 func (c *registryGRPCClient) GetApiSpecContents(ctx context.Context, req *apigeeregistrypb.GetApiSpecContentsRequest, opts ...gax.CallOption) (*httpbodypb.HttpBody, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetApiSpecContents[0:len((*c.CallOptions).GetApiSpecContents):len((*c.CallOptions).GetApiSpecContents)], opts...)
 	var resp *httpbodypb.HttpBody
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.GetApiSpecContents(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.GetApiSpecContents, req, settings.GRPC, c.logger, "GetApiSpecContents")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1349,19 +1348,15 @@ func (c *registryGRPCClient) GetApiSpecContents(ctx context.Context, req *apigee
 }
 
 func (c *registryGRPCClient) CreateApiSpec(ctx context.Context, req *apigeeregistrypb.CreateApiSpecRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiSpec, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateApiSpec[0:len((*c.CallOptions).CreateApiSpec):len((*c.CallOptions).CreateApiSpec)], opts...)
 	var resp *apigeeregistrypb.ApiSpec
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.CreateApiSpec(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.CreateApiSpec, req, settings.GRPC, c.logger, "CreateApiSpec")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1371,19 +1366,15 @@ func (c *registryGRPCClient) CreateApiSpec(ctx context.Context, req *apigeeregis
 }
 
 func (c *registryGRPCClient) UpdateApiSpec(ctx context.Context, req *apigeeregistrypb.UpdateApiSpecRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiSpec, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "api_spec.name", url.QueryEscape(req.GetApiSpec().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "api_spec.name", url.QueryEscape(req.GetApiSpec().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateApiSpec[0:len((*c.CallOptions).UpdateApiSpec):len((*c.CallOptions).UpdateApiSpec)], opts...)
 	var resp *apigeeregistrypb.ApiSpec
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.UpdateApiSpec(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.UpdateApiSpec, req, settings.GRPC, c.logger, "UpdateApiSpec")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1393,37 +1384,29 @@ func (c *registryGRPCClient) UpdateApiSpec(ctx context.Context, req *apigeeregis
 }
 
 func (c *registryGRPCClient) DeleteApiSpec(ctx context.Context, req *apigeeregistrypb.DeleteApiSpecRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteApiSpec[0:len((*c.CallOptions).DeleteApiSpec):len((*c.CallOptions).DeleteApiSpec)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.registryClient.DeleteApiSpec(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.registryClient.DeleteApiSpec, req, settings.GRPC, c.logger, "DeleteApiSpec")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *registryGRPCClient) TagApiSpecRevision(ctx context.Context, req *apigeeregistrypb.TagApiSpecRevisionRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiSpec, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TagApiSpecRevision[0:len((*c.CallOptions).TagApiSpecRevision):len((*c.CallOptions).TagApiSpecRevision)], opts...)
 	var resp *apigeeregistrypb.ApiSpec
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.TagApiSpecRevision(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.TagApiSpecRevision, req, settings.GRPC, c.logger, "TagApiSpecRevision")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1433,9 +1416,10 @@ func (c *registryGRPCClient) TagApiSpecRevision(ctx context.Context, req *apigee
 }
 
 func (c *registryGRPCClient) ListApiSpecRevisions(ctx context.Context, req *apigeeregistrypb.ListApiSpecRevisionsRequest, opts ...gax.CallOption) *ApiSpecIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListApiSpecRevisions[0:len((*c.CallOptions).ListApiSpecRevisions):len((*c.CallOptions).ListApiSpecRevisions)], opts...)
 	it := &ApiSpecIterator{}
 	req = proto.Clone(req).(*apigeeregistrypb.ListApiSpecRevisionsRequest)
@@ -1451,7 +1435,7 @@ func (c *registryGRPCClient) ListApiSpecRevisions(ctx context.Context, req *apig
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.registryClient.ListApiSpecRevisions(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.registryClient.ListApiSpecRevisions, req, settings.GRPC, c.logger, "ListApiSpecRevisions")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1478,19 +1462,15 @@ func (c *registryGRPCClient) ListApiSpecRevisions(ctx context.Context, req *apig
 }
 
 func (c *registryGRPCClient) RollbackApiSpec(ctx context.Context, req *apigeeregistrypb.RollbackApiSpecRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiSpec, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).RollbackApiSpec[0:len((*c.CallOptions).RollbackApiSpec):len((*c.CallOptions).RollbackApiSpec)], opts...)
 	var resp *apigeeregistrypb.ApiSpec
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.RollbackApiSpec(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.RollbackApiSpec, req, settings.GRPC, c.logger, "RollbackApiSpec")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1500,19 +1480,15 @@ func (c *registryGRPCClient) RollbackApiSpec(ctx context.Context, req *apigeereg
 }
 
 func (c *registryGRPCClient) DeleteApiSpecRevision(ctx context.Context, req *apigeeregistrypb.DeleteApiSpecRevisionRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiSpec, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteApiSpecRevision[0:len((*c.CallOptions).DeleteApiSpecRevision):len((*c.CallOptions).DeleteApiSpecRevision)], opts...)
 	var resp *apigeeregistrypb.ApiSpec
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.DeleteApiSpecRevision(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.DeleteApiSpecRevision, req, settings.GRPC, c.logger, "DeleteApiSpecRevision")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1522,9 +1498,10 @@ func (c *registryGRPCClient) DeleteApiSpecRevision(ctx context.Context, req *api
 }
 
 func (c *registryGRPCClient) ListApiDeployments(ctx context.Context, req *apigeeregistrypb.ListApiDeploymentsRequest, opts ...gax.CallOption) *ApiDeploymentIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListApiDeployments[0:len((*c.CallOptions).ListApiDeployments):len((*c.CallOptions).ListApiDeployments)], opts...)
 	it := &ApiDeploymentIterator{}
 	req = proto.Clone(req).(*apigeeregistrypb.ListApiDeploymentsRequest)
@@ -1540,7 +1517,7 @@ func (c *registryGRPCClient) ListApiDeployments(ctx context.Context, req *apigee
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.registryClient.ListApiDeployments(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.registryClient.ListApiDeployments, req, settings.GRPC, c.logger, "ListApiDeployments")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1567,19 +1544,15 @@ func (c *registryGRPCClient) ListApiDeployments(ctx context.Context, req *apigee
 }
 
 func (c *registryGRPCClient) GetApiDeployment(ctx context.Context, req *apigeeregistrypb.GetApiDeploymentRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiDeployment, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetApiDeployment[0:len((*c.CallOptions).GetApiDeployment):len((*c.CallOptions).GetApiDeployment)], opts...)
 	var resp *apigeeregistrypb.ApiDeployment
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.GetApiDeployment(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.GetApiDeployment, req, settings.GRPC, c.logger, "GetApiDeployment")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1589,19 +1562,15 @@ func (c *registryGRPCClient) GetApiDeployment(ctx context.Context, req *apigeere
 }
 
 func (c *registryGRPCClient) CreateApiDeployment(ctx context.Context, req *apigeeregistrypb.CreateApiDeploymentRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiDeployment, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateApiDeployment[0:len((*c.CallOptions).CreateApiDeployment):len((*c.CallOptions).CreateApiDeployment)], opts...)
 	var resp *apigeeregistrypb.ApiDeployment
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.CreateApiDeployment(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.CreateApiDeployment, req, settings.GRPC, c.logger, "CreateApiDeployment")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1611,19 +1580,15 @@ func (c *registryGRPCClient) CreateApiDeployment(ctx context.Context, req *apige
 }
 
 func (c *registryGRPCClient) UpdateApiDeployment(ctx context.Context, req *apigeeregistrypb.UpdateApiDeploymentRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiDeployment, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "api_deployment.name", url.QueryEscape(req.GetApiDeployment().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "api_deployment.name", url.QueryEscape(req.GetApiDeployment().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateApiDeployment[0:len((*c.CallOptions).UpdateApiDeployment):len((*c.CallOptions).UpdateApiDeployment)], opts...)
 	var resp *apigeeregistrypb.ApiDeployment
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.UpdateApiDeployment(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.UpdateApiDeployment, req, settings.GRPC, c.logger, "UpdateApiDeployment")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1633,37 +1598,29 @@ func (c *registryGRPCClient) UpdateApiDeployment(ctx context.Context, req *apige
 }
 
 func (c *registryGRPCClient) DeleteApiDeployment(ctx context.Context, req *apigeeregistrypb.DeleteApiDeploymentRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteApiDeployment[0:len((*c.CallOptions).DeleteApiDeployment):len((*c.CallOptions).DeleteApiDeployment)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.registryClient.DeleteApiDeployment(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.registryClient.DeleteApiDeployment, req, settings.GRPC, c.logger, "DeleteApiDeployment")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *registryGRPCClient) TagApiDeploymentRevision(ctx context.Context, req *apigeeregistrypb.TagApiDeploymentRevisionRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiDeployment, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TagApiDeploymentRevision[0:len((*c.CallOptions).TagApiDeploymentRevision):len((*c.CallOptions).TagApiDeploymentRevision)], opts...)
 	var resp *apigeeregistrypb.ApiDeployment
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.TagApiDeploymentRevision(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.TagApiDeploymentRevision, req, settings.GRPC, c.logger, "TagApiDeploymentRevision")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1673,9 +1630,10 @@ func (c *registryGRPCClient) TagApiDeploymentRevision(ctx context.Context, req *
 }
 
 func (c *registryGRPCClient) ListApiDeploymentRevisions(ctx context.Context, req *apigeeregistrypb.ListApiDeploymentRevisionsRequest, opts ...gax.CallOption) *ApiDeploymentIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListApiDeploymentRevisions[0:len((*c.CallOptions).ListApiDeploymentRevisions):len((*c.CallOptions).ListApiDeploymentRevisions)], opts...)
 	it := &ApiDeploymentIterator{}
 	req = proto.Clone(req).(*apigeeregistrypb.ListApiDeploymentRevisionsRequest)
@@ -1691,7 +1649,7 @@ func (c *registryGRPCClient) ListApiDeploymentRevisions(ctx context.Context, req
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.registryClient.ListApiDeploymentRevisions(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.registryClient.ListApiDeploymentRevisions, req, settings.GRPC, c.logger, "ListApiDeploymentRevisions")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1718,19 +1676,15 @@ func (c *registryGRPCClient) ListApiDeploymentRevisions(ctx context.Context, req
 }
 
 func (c *registryGRPCClient) RollbackApiDeployment(ctx context.Context, req *apigeeregistrypb.RollbackApiDeploymentRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiDeployment, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).RollbackApiDeployment[0:len((*c.CallOptions).RollbackApiDeployment):len((*c.CallOptions).RollbackApiDeployment)], opts...)
 	var resp *apigeeregistrypb.ApiDeployment
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.RollbackApiDeployment(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.RollbackApiDeployment, req, settings.GRPC, c.logger, "RollbackApiDeployment")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1740,19 +1694,15 @@ func (c *registryGRPCClient) RollbackApiDeployment(ctx context.Context, req *api
 }
 
 func (c *registryGRPCClient) DeleteApiDeploymentRevision(ctx context.Context, req *apigeeregistrypb.DeleteApiDeploymentRevisionRequest, opts ...gax.CallOption) (*apigeeregistrypb.ApiDeployment, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteApiDeploymentRevision[0:len((*c.CallOptions).DeleteApiDeploymentRevision):len((*c.CallOptions).DeleteApiDeploymentRevision)], opts...)
 	var resp *apigeeregistrypb.ApiDeployment
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.DeleteApiDeploymentRevision(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.DeleteApiDeploymentRevision, req, settings.GRPC, c.logger, "DeleteApiDeploymentRevision")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1762,9 +1712,10 @@ func (c *registryGRPCClient) DeleteApiDeploymentRevision(ctx context.Context, re
 }
 
 func (c *registryGRPCClient) ListArtifacts(ctx context.Context, req *apigeeregistrypb.ListArtifactsRequest, opts ...gax.CallOption) *ArtifactIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListArtifacts[0:len((*c.CallOptions).ListArtifacts):len((*c.CallOptions).ListArtifacts)], opts...)
 	it := &ArtifactIterator{}
 	req = proto.Clone(req).(*apigeeregistrypb.ListArtifactsRequest)
@@ -1780,7 +1731,7 @@ func (c *registryGRPCClient) ListArtifacts(ctx context.Context, req *apigeeregis
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.registryClient.ListArtifacts(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.registryClient.ListArtifacts, req, settings.GRPC, c.logger, "ListArtifacts")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1807,19 +1758,15 @@ func (c *registryGRPCClient) ListArtifacts(ctx context.Context, req *apigeeregis
 }
 
 func (c *registryGRPCClient) GetArtifact(ctx context.Context, req *apigeeregistrypb.GetArtifactRequest, opts ...gax.CallOption) (*apigeeregistrypb.Artifact, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetArtifact[0:len((*c.CallOptions).GetArtifact):len((*c.CallOptions).GetArtifact)], opts...)
 	var resp *apigeeregistrypb.Artifact
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.GetArtifact(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.GetArtifact, req, settings.GRPC, c.logger, "GetArtifact")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1829,19 +1776,15 @@ func (c *registryGRPCClient) GetArtifact(ctx context.Context, req *apigeeregistr
 }
 
 func (c *registryGRPCClient) GetArtifactContents(ctx context.Context, req *apigeeregistrypb.GetArtifactContentsRequest, opts ...gax.CallOption) (*httpbodypb.HttpBody, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetArtifactContents[0:len((*c.CallOptions).GetArtifactContents):len((*c.CallOptions).GetArtifactContents)], opts...)
 	var resp *httpbodypb.HttpBody
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.GetArtifactContents(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.GetArtifactContents, req, settings.GRPC, c.logger, "GetArtifactContents")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1851,19 +1794,15 @@ func (c *registryGRPCClient) GetArtifactContents(ctx context.Context, req *apige
 }
 
 func (c *registryGRPCClient) CreateArtifact(ctx context.Context, req *apigeeregistrypb.CreateArtifactRequest, opts ...gax.CallOption) (*apigeeregistrypb.Artifact, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateArtifact[0:len((*c.CallOptions).CreateArtifact):len((*c.CallOptions).CreateArtifact)], opts...)
 	var resp *apigeeregistrypb.Artifact
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.CreateArtifact(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.CreateArtifact, req, settings.GRPC, c.logger, "CreateArtifact")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1873,19 +1812,15 @@ func (c *registryGRPCClient) CreateArtifact(ctx context.Context, req *apigeeregi
 }
 
 func (c *registryGRPCClient) ReplaceArtifact(ctx context.Context, req *apigeeregistrypb.ReplaceArtifactRequest, opts ...gax.CallOption) (*apigeeregistrypb.Artifact, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "artifact.name", url.QueryEscape(req.GetArtifact().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "artifact.name", url.QueryEscape(req.GetArtifact().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ReplaceArtifact[0:len((*c.CallOptions).ReplaceArtifact):len((*c.CallOptions).ReplaceArtifact)], opts...)
 	var resp *apigeeregistrypb.Artifact
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.registryClient.ReplaceArtifact(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.registryClient.ReplaceArtifact, req, settings.GRPC, c.logger, "ReplaceArtifact")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1895,32 +1830,29 @@ func (c *registryGRPCClient) ReplaceArtifact(ctx context.Context, req *apigeereg
 }
 
 func (c *registryGRPCClient) DeleteArtifact(ctx context.Context, req *apigeeregistrypb.DeleteArtifactRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteArtifact[0:len((*c.CallOptions).DeleteArtifact):len((*c.CallOptions).DeleteArtifact)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.registryClient.DeleteArtifact(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.registryClient.DeleteArtifact, req, settings.GRPC, c.logger, "DeleteArtifact")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *registryGRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
 	var resp *locationpb.Location
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.locationsClient.GetLocation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.locationsClient.GetLocation, req, settings.GRPC, c.logger, "GetLocation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1930,9 +1862,10 @@ func (c *registryGRPCClient) GetLocation(ctx context.Context, req *locationpb.Ge
 }
 
 func (c *registryGRPCClient) ListLocations(ctx context.Context, req *locationpb.ListLocationsRequest, opts ...gax.CallOption) *LocationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListLocations[0:len((*c.CallOptions).ListLocations):len((*c.CallOptions).ListLocations)], opts...)
 	it := &LocationIterator{}
 	req = proto.Clone(req).(*locationpb.ListLocationsRequest)
@@ -1948,7 +1881,7 @@ func (c *registryGRPCClient) ListLocations(ctx context.Context, req *locationpb.
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.locationsClient.ListLocations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.locationsClient.ListLocations, req, settings.GRPC, c.logger, "ListLocations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1975,14 +1908,15 @@ func (c *registryGRPCClient) ListLocations(ctx context.Context, req *locationpb.
 }
 
 func (c *registryGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.GetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.GetIamPolicy, req, settings.GRPC, c.logger, "GetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1992,14 +1926,15 @@ func (c *registryGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIam
 }
 
 func (c *registryGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.SetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.SetIamPolicy, req, settings.GRPC, c.logger, "SetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -2009,14 +1944,15 @@ func (c *registryGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIam
 }
 
 func (c *registryGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	var resp *iampb.TestIamPermissionsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.TestIamPermissions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.TestIamPermissions, req, settings.GRPC, c.logger, "TestIamPermissions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -2026,40 +1962,43 @@ func (c *registryGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.
 }
 
 func (c *registryGRPCClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CancelOperation[0:len((*c.CallOptions).CancelOperation):len((*c.CallOptions).CancelOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.CancelOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.CancelOperation, req, settings.GRPC, c.logger, "CancelOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *registryGRPCClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteOperation[0:len((*c.CallOptions).DeleteOperation):len((*c.CallOptions).DeleteOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.DeleteOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.DeleteOperation, req, settings.GRPC, c.logger, "DeleteOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *registryGRPCClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.operationsClient.GetOperation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.operationsClient.GetOperation, req, settings.GRPC, c.logger, "GetOperation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -2069,9 +2008,10 @@ func (c *registryGRPCClient) GetOperation(ctx context.Context, req *longrunningp
 }
 
 func (c *registryGRPCClient) ListOperations(ctx context.Context, req *longrunningpb.ListOperationsRequest, opts ...gax.CallOption) *OperationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListOperations[0:len((*c.CallOptions).ListOperations):len((*c.CallOptions).ListOperations)], opts...)
 	it := &OperationIterator{}
 	req = proto.Clone(req).(*longrunningpb.ListOperationsRequest)
@@ -2087,7 +2027,7 @@ func (c *registryGRPCClient) ListOperations(ctx context.Context, req *longrunnin
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.operationsClient.ListOperations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.operationsClient.ListOperations, req, settings.GRPC, c.logger, "ListOperations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -2111,239 +2051,4 @@ func (c *registryGRPCClient) ListOperations(ctx context.Context, req *longrunnin
 	it.pageInfo.Token = req.GetPageToken()
 
 	return it
-}
-
-// ApiDeploymentIterator manages a stream of *apigeeregistrypb.ApiDeployment.
-type ApiDeploymentIterator struct {
-	items    []*apigeeregistrypb.ApiDeployment
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*apigeeregistrypb.ApiDeployment, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ApiDeploymentIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ApiDeploymentIterator) Next() (*apigeeregistrypb.ApiDeployment, error) {
-	var item *apigeeregistrypb.ApiDeployment
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ApiDeploymentIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ApiDeploymentIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ApiIterator manages a stream of *apigeeregistrypb.Api.
-type ApiIterator struct {
-	items    []*apigeeregistrypb.Api
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*apigeeregistrypb.Api, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ApiIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ApiIterator) Next() (*apigeeregistrypb.Api, error) {
-	var item *apigeeregistrypb.Api
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ApiIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ApiIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ApiSpecIterator manages a stream of *apigeeregistrypb.ApiSpec.
-type ApiSpecIterator struct {
-	items    []*apigeeregistrypb.ApiSpec
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*apigeeregistrypb.ApiSpec, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ApiSpecIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ApiSpecIterator) Next() (*apigeeregistrypb.ApiSpec, error) {
-	var item *apigeeregistrypb.ApiSpec
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ApiSpecIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ApiSpecIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ApiVersionIterator manages a stream of *apigeeregistrypb.ApiVersion.
-type ApiVersionIterator struct {
-	items    []*apigeeregistrypb.ApiVersion
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*apigeeregistrypb.ApiVersion, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ApiVersionIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ApiVersionIterator) Next() (*apigeeregistrypb.ApiVersion, error) {
-	var item *apigeeregistrypb.ApiVersion
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ApiVersionIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ApiVersionIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ArtifactIterator manages a stream of *apigeeregistrypb.Artifact.
-type ArtifactIterator struct {
-	items    []*apigeeregistrypb.Artifact
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*apigeeregistrypb.Artifact, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ArtifactIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ArtifactIterator) Next() (*apigeeregistrypb.Artifact, error) {
-	var item *apigeeregistrypb.Artifact
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ArtifactIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ArtifactIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
 }

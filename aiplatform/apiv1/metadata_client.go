@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,23 +19,22 @@ package aiplatform
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/url"
-	"time"
 
 	aiplatformpb "cloud.google.com/go/aiplatform/apiv1/aiplatformpb"
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/longrunning"
 	lroauto "cloud.google.com/go/longrunning/autogen"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	gax "github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -90,10 +89,13 @@ type MetadataCallOptions struct {
 func defaultMetadataGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("aiplatform.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("aiplatform.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("aiplatform.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://aiplatform.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -535,9 +537,6 @@ type metadataGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing MetadataClient
 	CallOptions **MetadataCallOptions
 
@@ -556,7 +555,9 @@ type metadataGRPCClient struct {
 	locationsClient locationpb.LocationsClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewMetadataClient creates a new metadata service client based on gRPC.
@@ -573,11 +574,6 @@ func NewMetadataClient(ctx context.Context, opts ...option.ClientOption) (*Metad
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -586,9 +582,9 @@ func NewMetadataClient(ctx context.Context, opts ...option.ClientOption) (*Metad
 
 	c := &metadataGRPCClient{
 		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
 		metadataClient:   aiplatformpb.NewMetadataServiceClient(connPool),
 		CallOptions:      &client.CallOptions,
+		logger:           internaloption.GetLogger(opts),
 		operationsClient: longrunningpb.NewOperationsClient(connPool),
 		iamPolicyClient:  iampb.NewIAMPolicyClient(connPool),
 		locationsClient:  locationpb.NewLocationsClient(connPool),
@@ -623,9 +619,11 @@ func (c *metadataGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *metadataGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -635,14 +633,15 @@ func (c *metadataGRPCClient) Close() error {
 }
 
 func (c *metadataGRPCClient) CreateMetadataStore(ctx context.Context, req *aiplatformpb.CreateMetadataStoreRequest, opts ...gax.CallOption) (*CreateMetadataStoreOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateMetadataStore[0:len((*c.CallOptions).CreateMetadataStore):len((*c.CallOptions).CreateMetadataStore)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.CreateMetadataStore(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.CreateMetadataStore, req, settings.GRPC, c.logger, "CreateMetadataStore")
 		return err
 	}, opts...)
 	if err != nil {
@@ -654,14 +653,15 @@ func (c *metadataGRPCClient) CreateMetadataStore(ctx context.Context, req *aipla
 }
 
 func (c *metadataGRPCClient) GetMetadataStore(ctx context.Context, req *aiplatformpb.GetMetadataStoreRequest, opts ...gax.CallOption) (*aiplatformpb.MetadataStore, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetMetadataStore[0:len((*c.CallOptions).GetMetadataStore):len((*c.CallOptions).GetMetadataStore)], opts...)
 	var resp *aiplatformpb.MetadataStore
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.GetMetadataStore(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.GetMetadataStore, req, settings.GRPC, c.logger, "GetMetadataStore")
 		return err
 	}, opts...)
 	if err != nil {
@@ -671,9 +671,10 @@ func (c *metadataGRPCClient) GetMetadataStore(ctx context.Context, req *aiplatfo
 }
 
 func (c *metadataGRPCClient) ListMetadataStores(ctx context.Context, req *aiplatformpb.ListMetadataStoresRequest, opts ...gax.CallOption) *MetadataStoreIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListMetadataStores[0:len((*c.CallOptions).ListMetadataStores):len((*c.CallOptions).ListMetadataStores)], opts...)
 	it := &MetadataStoreIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListMetadataStoresRequest)
@@ -689,7 +690,7 @@ func (c *metadataGRPCClient) ListMetadataStores(ctx context.Context, req *aiplat
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.metadataClient.ListMetadataStores(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.metadataClient.ListMetadataStores, req, settings.GRPC, c.logger, "ListMetadataStores")
 			return err
 		}, opts...)
 		if err != nil {
@@ -716,14 +717,15 @@ func (c *metadataGRPCClient) ListMetadataStores(ctx context.Context, req *aiplat
 }
 
 func (c *metadataGRPCClient) DeleteMetadataStore(ctx context.Context, req *aiplatformpb.DeleteMetadataStoreRequest, opts ...gax.CallOption) (*DeleteMetadataStoreOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteMetadataStore[0:len((*c.CallOptions).DeleteMetadataStore):len((*c.CallOptions).DeleteMetadataStore)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.DeleteMetadataStore(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.DeleteMetadataStore, req, settings.GRPC, c.logger, "DeleteMetadataStore")
 		return err
 	}, opts...)
 	if err != nil {
@@ -735,14 +737,15 @@ func (c *metadataGRPCClient) DeleteMetadataStore(ctx context.Context, req *aipla
 }
 
 func (c *metadataGRPCClient) CreateArtifact(ctx context.Context, req *aiplatformpb.CreateArtifactRequest, opts ...gax.CallOption) (*aiplatformpb.Artifact, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateArtifact[0:len((*c.CallOptions).CreateArtifact):len((*c.CallOptions).CreateArtifact)], opts...)
 	var resp *aiplatformpb.Artifact
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.CreateArtifact(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.CreateArtifact, req, settings.GRPC, c.logger, "CreateArtifact")
 		return err
 	}, opts...)
 	if err != nil {
@@ -752,14 +755,15 @@ func (c *metadataGRPCClient) CreateArtifact(ctx context.Context, req *aiplatform
 }
 
 func (c *metadataGRPCClient) GetArtifact(ctx context.Context, req *aiplatformpb.GetArtifactRequest, opts ...gax.CallOption) (*aiplatformpb.Artifact, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetArtifact[0:len((*c.CallOptions).GetArtifact):len((*c.CallOptions).GetArtifact)], opts...)
 	var resp *aiplatformpb.Artifact
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.GetArtifact(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.GetArtifact, req, settings.GRPC, c.logger, "GetArtifact")
 		return err
 	}, opts...)
 	if err != nil {
@@ -769,9 +773,10 @@ func (c *metadataGRPCClient) GetArtifact(ctx context.Context, req *aiplatformpb.
 }
 
 func (c *metadataGRPCClient) ListArtifacts(ctx context.Context, req *aiplatformpb.ListArtifactsRequest, opts ...gax.CallOption) *ArtifactIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListArtifacts[0:len((*c.CallOptions).ListArtifacts):len((*c.CallOptions).ListArtifacts)], opts...)
 	it := &ArtifactIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListArtifactsRequest)
@@ -787,7 +792,7 @@ func (c *metadataGRPCClient) ListArtifacts(ctx context.Context, req *aiplatformp
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.metadataClient.ListArtifacts(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.metadataClient.ListArtifacts, req, settings.GRPC, c.logger, "ListArtifacts")
 			return err
 		}, opts...)
 		if err != nil {
@@ -814,14 +819,15 @@ func (c *metadataGRPCClient) ListArtifacts(ctx context.Context, req *aiplatformp
 }
 
 func (c *metadataGRPCClient) UpdateArtifact(ctx context.Context, req *aiplatformpb.UpdateArtifactRequest, opts ...gax.CallOption) (*aiplatformpb.Artifact, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "artifact.name", url.QueryEscape(req.GetArtifact().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "artifact.name", url.QueryEscape(req.GetArtifact().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateArtifact[0:len((*c.CallOptions).UpdateArtifact):len((*c.CallOptions).UpdateArtifact)], opts...)
 	var resp *aiplatformpb.Artifact
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.UpdateArtifact(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.UpdateArtifact, req, settings.GRPC, c.logger, "UpdateArtifact")
 		return err
 	}, opts...)
 	if err != nil {
@@ -831,14 +837,15 @@ func (c *metadataGRPCClient) UpdateArtifact(ctx context.Context, req *aiplatform
 }
 
 func (c *metadataGRPCClient) DeleteArtifact(ctx context.Context, req *aiplatformpb.DeleteArtifactRequest, opts ...gax.CallOption) (*DeleteArtifactOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteArtifact[0:len((*c.CallOptions).DeleteArtifact):len((*c.CallOptions).DeleteArtifact)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.DeleteArtifact(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.DeleteArtifact, req, settings.GRPC, c.logger, "DeleteArtifact")
 		return err
 	}, opts...)
 	if err != nil {
@@ -850,14 +857,15 @@ func (c *metadataGRPCClient) DeleteArtifact(ctx context.Context, req *aiplatform
 }
 
 func (c *metadataGRPCClient) PurgeArtifacts(ctx context.Context, req *aiplatformpb.PurgeArtifactsRequest, opts ...gax.CallOption) (*PurgeArtifactsOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).PurgeArtifacts[0:len((*c.CallOptions).PurgeArtifacts):len((*c.CallOptions).PurgeArtifacts)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.PurgeArtifacts(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.PurgeArtifacts, req, settings.GRPC, c.logger, "PurgeArtifacts")
 		return err
 	}, opts...)
 	if err != nil {
@@ -869,14 +877,15 @@ func (c *metadataGRPCClient) PurgeArtifacts(ctx context.Context, req *aiplatform
 }
 
 func (c *metadataGRPCClient) CreateContext(ctx context.Context, req *aiplatformpb.CreateContextRequest, opts ...gax.CallOption) (*aiplatformpb.Context, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateContext[0:len((*c.CallOptions).CreateContext):len((*c.CallOptions).CreateContext)], opts...)
 	var resp *aiplatformpb.Context
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.CreateContext(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.CreateContext, req, settings.GRPC, c.logger, "CreateContext")
 		return err
 	}, opts...)
 	if err != nil {
@@ -886,14 +895,15 @@ func (c *metadataGRPCClient) CreateContext(ctx context.Context, req *aiplatformp
 }
 
 func (c *metadataGRPCClient) GetContext(ctx context.Context, req *aiplatformpb.GetContextRequest, opts ...gax.CallOption) (*aiplatformpb.Context, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetContext[0:len((*c.CallOptions).GetContext):len((*c.CallOptions).GetContext)], opts...)
 	var resp *aiplatformpb.Context
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.GetContext(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.GetContext, req, settings.GRPC, c.logger, "GetContext")
 		return err
 	}, opts...)
 	if err != nil {
@@ -903,9 +913,10 @@ func (c *metadataGRPCClient) GetContext(ctx context.Context, req *aiplatformpb.G
 }
 
 func (c *metadataGRPCClient) ListContexts(ctx context.Context, req *aiplatformpb.ListContextsRequest, opts ...gax.CallOption) *ContextIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListContexts[0:len((*c.CallOptions).ListContexts):len((*c.CallOptions).ListContexts)], opts...)
 	it := &ContextIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListContextsRequest)
@@ -921,7 +932,7 @@ func (c *metadataGRPCClient) ListContexts(ctx context.Context, req *aiplatformpb
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.metadataClient.ListContexts(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.metadataClient.ListContexts, req, settings.GRPC, c.logger, "ListContexts")
 			return err
 		}, opts...)
 		if err != nil {
@@ -948,14 +959,15 @@ func (c *metadataGRPCClient) ListContexts(ctx context.Context, req *aiplatformpb
 }
 
 func (c *metadataGRPCClient) UpdateContext(ctx context.Context, req *aiplatformpb.UpdateContextRequest, opts ...gax.CallOption) (*aiplatformpb.Context, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "context.name", url.QueryEscape(req.GetContext().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "context.name", url.QueryEscape(req.GetContext().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateContext[0:len((*c.CallOptions).UpdateContext):len((*c.CallOptions).UpdateContext)], opts...)
 	var resp *aiplatformpb.Context
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.UpdateContext(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.UpdateContext, req, settings.GRPC, c.logger, "UpdateContext")
 		return err
 	}, opts...)
 	if err != nil {
@@ -965,14 +977,15 @@ func (c *metadataGRPCClient) UpdateContext(ctx context.Context, req *aiplatformp
 }
 
 func (c *metadataGRPCClient) DeleteContext(ctx context.Context, req *aiplatformpb.DeleteContextRequest, opts ...gax.CallOption) (*DeleteContextOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteContext[0:len((*c.CallOptions).DeleteContext):len((*c.CallOptions).DeleteContext)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.DeleteContext(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.DeleteContext, req, settings.GRPC, c.logger, "DeleteContext")
 		return err
 	}, opts...)
 	if err != nil {
@@ -984,14 +997,15 @@ func (c *metadataGRPCClient) DeleteContext(ctx context.Context, req *aiplatformp
 }
 
 func (c *metadataGRPCClient) PurgeContexts(ctx context.Context, req *aiplatformpb.PurgeContextsRequest, opts ...gax.CallOption) (*PurgeContextsOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).PurgeContexts[0:len((*c.CallOptions).PurgeContexts):len((*c.CallOptions).PurgeContexts)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.PurgeContexts(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.PurgeContexts, req, settings.GRPC, c.logger, "PurgeContexts")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1003,14 +1017,15 @@ func (c *metadataGRPCClient) PurgeContexts(ctx context.Context, req *aiplatformp
 }
 
 func (c *metadataGRPCClient) AddContextArtifactsAndExecutions(ctx context.Context, req *aiplatformpb.AddContextArtifactsAndExecutionsRequest, opts ...gax.CallOption) (*aiplatformpb.AddContextArtifactsAndExecutionsResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "context", url.QueryEscape(req.GetContext())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "context", url.QueryEscape(req.GetContext()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).AddContextArtifactsAndExecutions[0:len((*c.CallOptions).AddContextArtifactsAndExecutions):len((*c.CallOptions).AddContextArtifactsAndExecutions)], opts...)
 	var resp *aiplatformpb.AddContextArtifactsAndExecutionsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.AddContextArtifactsAndExecutions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.AddContextArtifactsAndExecutions, req, settings.GRPC, c.logger, "AddContextArtifactsAndExecutions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1020,14 +1035,15 @@ func (c *metadataGRPCClient) AddContextArtifactsAndExecutions(ctx context.Contex
 }
 
 func (c *metadataGRPCClient) AddContextChildren(ctx context.Context, req *aiplatformpb.AddContextChildrenRequest, opts ...gax.CallOption) (*aiplatformpb.AddContextChildrenResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "context", url.QueryEscape(req.GetContext())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "context", url.QueryEscape(req.GetContext()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).AddContextChildren[0:len((*c.CallOptions).AddContextChildren):len((*c.CallOptions).AddContextChildren)], opts...)
 	var resp *aiplatformpb.AddContextChildrenResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.AddContextChildren(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.AddContextChildren, req, settings.GRPC, c.logger, "AddContextChildren")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1037,14 +1053,15 @@ func (c *metadataGRPCClient) AddContextChildren(ctx context.Context, req *aiplat
 }
 
 func (c *metadataGRPCClient) RemoveContextChildren(ctx context.Context, req *aiplatformpb.RemoveContextChildrenRequest, opts ...gax.CallOption) (*aiplatformpb.RemoveContextChildrenResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "context", url.QueryEscape(req.GetContext())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "context", url.QueryEscape(req.GetContext()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).RemoveContextChildren[0:len((*c.CallOptions).RemoveContextChildren):len((*c.CallOptions).RemoveContextChildren)], opts...)
 	var resp *aiplatformpb.RemoveContextChildrenResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.RemoveContextChildren(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.RemoveContextChildren, req, settings.GRPC, c.logger, "RemoveContextChildren")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1054,14 +1071,15 @@ func (c *metadataGRPCClient) RemoveContextChildren(ctx context.Context, req *aip
 }
 
 func (c *metadataGRPCClient) QueryContextLineageSubgraph(ctx context.Context, req *aiplatformpb.QueryContextLineageSubgraphRequest, opts ...gax.CallOption) (*aiplatformpb.LineageSubgraph, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "context", url.QueryEscape(req.GetContext())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "context", url.QueryEscape(req.GetContext()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).QueryContextLineageSubgraph[0:len((*c.CallOptions).QueryContextLineageSubgraph):len((*c.CallOptions).QueryContextLineageSubgraph)], opts...)
 	var resp *aiplatformpb.LineageSubgraph
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.QueryContextLineageSubgraph(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.QueryContextLineageSubgraph, req, settings.GRPC, c.logger, "QueryContextLineageSubgraph")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1071,14 +1089,15 @@ func (c *metadataGRPCClient) QueryContextLineageSubgraph(ctx context.Context, re
 }
 
 func (c *metadataGRPCClient) CreateExecution(ctx context.Context, req *aiplatformpb.CreateExecutionRequest, opts ...gax.CallOption) (*aiplatformpb.Execution, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateExecution[0:len((*c.CallOptions).CreateExecution):len((*c.CallOptions).CreateExecution)], opts...)
 	var resp *aiplatformpb.Execution
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.CreateExecution(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.CreateExecution, req, settings.GRPC, c.logger, "CreateExecution")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1088,14 +1107,15 @@ func (c *metadataGRPCClient) CreateExecution(ctx context.Context, req *aiplatfor
 }
 
 func (c *metadataGRPCClient) GetExecution(ctx context.Context, req *aiplatformpb.GetExecutionRequest, opts ...gax.CallOption) (*aiplatformpb.Execution, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetExecution[0:len((*c.CallOptions).GetExecution):len((*c.CallOptions).GetExecution)], opts...)
 	var resp *aiplatformpb.Execution
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.GetExecution(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.GetExecution, req, settings.GRPC, c.logger, "GetExecution")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1105,9 +1125,10 @@ func (c *metadataGRPCClient) GetExecution(ctx context.Context, req *aiplatformpb
 }
 
 func (c *metadataGRPCClient) ListExecutions(ctx context.Context, req *aiplatformpb.ListExecutionsRequest, opts ...gax.CallOption) *ExecutionIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListExecutions[0:len((*c.CallOptions).ListExecutions):len((*c.CallOptions).ListExecutions)], opts...)
 	it := &ExecutionIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListExecutionsRequest)
@@ -1123,7 +1144,7 @@ func (c *metadataGRPCClient) ListExecutions(ctx context.Context, req *aiplatform
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.metadataClient.ListExecutions(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.metadataClient.ListExecutions, req, settings.GRPC, c.logger, "ListExecutions")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1150,14 +1171,15 @@ func (c *metadataGRPCClient) ListExecutions(ctx context.Context, req *aiplatform
 }
 
 func (c *metadataGRPCClient) UpdateExecution(ctx context.Context, req *aiplatformpb.UpdateExecutionRequest, opts ...gax.CallOption) (*aiplatformpb.Execution, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "execution.name", url.QueryEscape(req.GetExecution().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "execution.name", url.QueryEscape(req.GetExecution().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateExecution[0:len((*c.CallOptions).UpdateExecution):len((*c.CallOptions).UpdateExecution)], opts...)
 	var resp *aiplatformpb.Execution
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.UpdateExecution(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.UpdateExecution, req, settings.GRPC, c.logger, "UpdateExecution")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1167,14 +1189,15 @@ func (c *metadataGRPCClient) UpdateExecution(ctx context.Context, req *aiplatfor
 }
 
 func (c *metadataGRPCClient) DeleteExecution(ctx context.Context, req *aiplatformpb.DeleteExecutionRequest, opts ...gax.CallOption) (*DeleteExecutionOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteExecution[0:len((*c.CallOptions).DeleteExecution):len((*c.CallOptions).DeleteExecution)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.DeleteExecution(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.DeleteExecution, req, settings.GRPC, c.logger, "DeleteExecution")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1186,14 +1209,15 @@ func (c *metadataGRPCClient) DeleteExecution(ctx context.Context, req *aiplatfor
 }
 
 func (c *metadataGRPCClient) PurgeExecutions(ctx context.Context, req *aiplatformpb.PurgeExecutionsRequest, opts ...gax.CallOption) (*PurgeExecutionsOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).PurgeExecutions[0:len((*c.CallOptions).PurgeExecutions):len((*c.CallOptions).PurgeExecutions)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.PurgeExecutions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.PurgeExecutions, req, settings.GRPC, c.logger, "PurgeExecutions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1205,14 +1229,15 @@ func (c *metadataGRPCClient) PurgeExecutions(ctx context.Context, req *aiplatfor
 }
 
 func (c *metadataGRPCClient) AddExecutionEvents(ctx context.Context, req *aiplatformpb.AddExecutionEventsRequest, opts ...gax.CallOption) (*aiplatformpb.AddExecutionEventsResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "execution", url.QueryEscape(req.GetExecution())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "execution", url.QueryEscape(req.GetExecution()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).AddExecutionEvents[0:len((*c.CallOptions).AddExecutionEvents):len((*c.CallOptions).AddExecutionEvents)], opts...)
 	var resp *aiplatformpb.AddExecutionEventsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.AddExecutionEvents(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.AddExecutionEvents, req, settings.GRPC, c.logger, "AddExecutionEvents")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1222,14 +1247,15 @@ func (c *metadataGRPCClient) AddExecutionEvents(ctx context.Context, req *aiplat
 }
 
 func (c *metadataGRPCClient) QueryExecutionInputsAndOutputs(ctx context.Context, req *aiplatformpb.QueryExecutionInputsAndOutputsRequest, opts ...gax.CallOption) (*aiplatformpb.LineageSubgraph, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "execution", url.QueryEscape(req.GetExecution())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "execution", url.QueryEscape(req.GetExecution()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).QueryExecutionInputsAndOutputs[0:len((*c.CallOptions).QueryExecutionInputsAndOutputs):len((*c.CallOptions).QueryExecutionInputsAndOutputs)], opts...)
 	var resp *aiplatformpb.LineageSubgraph
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.QueryExecutionInputsAndOutputs(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.QueryExecutionInputsAndOutputs, req, settings.GRPC, c.logger, "QueryExecutionInputsAndOutputs")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1239,14 +1265,15 @@ func (c *metadataGRPCClient) QueryExecutionInputsAndOutputs(ctx context.Context,
 }
 
 func (c *metadataGRPCClient) CreateMetadataSchema(ctx context.Context, req *aiplatformpb.CreateMetadataSchemaRequest, opts ...gax.CallOption) (*aiplatformpb.MetadataSchema, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateMetadataSchema[0:len((*c.CallOptions).CreateMetadataSchema):len((*c.CallOptions).CreateMetadataSchema)], opts...)
 	var resp *aiplatformpb.MetadataSchema
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.CreateMetadataSchema(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.CreateMetadataSchema, req, settings.GRPC, c.logger, "CreateMetadataSchema")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1256,14 +1283,15 @@ func (c *metadataGRPCClient) CreateMetadataSchema(ctx context.Context, req *aipl
 }
 
 func (c *metadataGRPCClient) GetMetadataSchema(ctx context.Context, req *aiplatformpb.GetMetadataSchemaRequest, opts ...gax.CallOption) (*aiplatformpb.MetadataSchema, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetMetadataSchema[0:len((*c.CallOptions).GetMetadataSchema):len((*c.CallOptions).GetMetadataSchema)], opts...)
 	var resp *aiplatformpb.MetadataSchema
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.GetMetadataSchema(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.GetMetadataSchema, req, settings.GRPC, c.logger, "GetMetadataSchema")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1273,9 +1301,10 @@ func (c *metadataGRPCClient) GetMetadataSchema(ctx context.Context, req *aiplatf
 }
 
 func (c *metadataGRPCClient) ListMetadataSchemas(ctx context.Context, req *aiplatformpb.ListMetadataSchemasRequest, opts ...gax.CallOption) *MetadataSchemaIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListMetadataSchemas[0:len((*c.CallOptions).ListMetadataSchemas):len((*c.CallOptions).ListMetadataSchemas)], opts...)
 	it := &MetadataSchemaIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListMetadataSchemasRequest)
@@ -1291,7 +1320,7 @@ func (c *metadataGRPCClient) ListMetadataSchemas(ctx context.Context, req *aipla
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.metadataClient.ListMetadataSchemas(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.metadataClient.ListMetadataSchemas, req, settings.GRPC, c.logger, "ListMetadataSchemas")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1318,14 +1347,15 @@ func (c *metadataGRPCClient) ListMetadataSchemas(ctx context.Context, req *aipla
 }
 
 func (c *metadataGRPCClient) QueryArtifactLineageSubgraph(ctx context.Context, req *aiplatformpb.QueryArtifactLineageSubgraphRequest, opts ...gax.CallOption) (*aiplatformpb.LineageSubgraph, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "artifact", url.QueryEscape(req.GetArtifact())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "artifact", url.QueryEscape(req.GetArtifact()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).QueryArtifactLineageSubgraph[0:len((*c.CallOptions).QueryArtifactLineageSubgraph):len((*c.CallOptions).QueryArtifactLineageSubgraph)], opts...)
 	var resp *aiplatformpb.LineageSubgraph
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.metadataClient.QueryArtifactLineageSubgraph(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.metadataClient.QueryArtifactLineageSubgraph, req, settings.GRPC, c.logger, "QueryArtifactLineageSubgraph")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1335,14 +1365,15 @@ func (c *metadataGRPCClient) QueryArtifactLineageSubgraph(ctx context.Context, r
 }
 
 func (c *metadataGRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
 	var resp *locationpb.Location
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.locationsClient.GetLocation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.locationsClient.GetLocation, req, settings.GRPC, c.logger, "GetLocation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1352,9 +1383,10 @@ func (c *metadataGRPCClient) GetLocation(ctx context.Context, req *locationpb.Ge
 }
 
 func (c *metadataGRPCClient) ListLocations(ctx context.Context, req *locationpb.ListLocationsRequest, opts ...gax.CallOption) *LocationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListLocations[0:len((*c.CallOptions).ListLocations):len((*c.CallOptions).ListLocations)], opts...)
 	it := &LocationIterator{}
 	req = proto.Clone(req).(*locationpb.ListLocationsRequest)
@@ -1370,7 +1402,7 @@ func (c *metadataGRPCClient) ListLocations(ctx context.Context, req *locationpb.
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.locationsClient.ListLocations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.locationsClient.ListLocations, req, settings.GRPC, c.logger, "ListLocations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1397,14 +1429,15 @@ func (c *metadataGRPCClient) ListLocations(ctx context.Context, req *locationpb.
 }
 
 func (c *metadataGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.GetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.GetIamPolicy, req, settings.GRPC, c.logger, "GetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1414,14 +1447,15 @@ func (c *metadataGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIam
 }
 
 func (c *metadataGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.SetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.SetIamPolicy, req, settings.GRPC, c.logger, "SetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1431,14 +1465,15 @@ func (c *metadataGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIam
 }
 
 func (c *metadataGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	var resp *iampb.TestIamPermissionsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.TestIamPermissions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.TestIamPermissions, req, settings.GRPC, c.logger, "TestIamPermissions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1448,40 +1483,43 @@ func (c *metadataGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.
 }
 
 func (c *metadataGRPCClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CancelOperation[0:len((*c.CallOptions).CancelOperation):len((*c.CallOptions).CancelOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.CancelOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.CancelOperation, req, settings.GRPC, c.logger, "CancelOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *metadataGRPCClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteOperation[0:len((*c.CallOptions).DeleteOperation):len((*c.CallOptions).DeleteOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.DeleteOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.DeleteOperation, req, settings.GRPC, c.logger, "DeleteOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *metadataGRPCClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.operationsClient.GetOperation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.operationsClient.GetOperation, req, settings.GRPC, c.logger, "GetOperation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1491,9 +1529,10 @@ func (c *metadataGRPCClient) GetOperation(ctx context.Context, req *longrunningp
 }
 
 func (c *metadataGRPCClient) ListOperations(ctx context.Context, req *longrunningpb.ListOperationsRequest, opts ...gax.CallOption) *OperationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListOperations[0:len((*c.CallOptions).ListOperations):len((*c.CallOptions).ListOperations)], opts...)
 	it := &OperationIterator{}
 	req = proto.Clone(req).(*longrunningpb.ListOperationsRequest)
@@ -1509,7 +1548,7 @@ func (c *metadataGRPCClient) ListOperations(ctx context.Context, req *longrunnin
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.operationsClient.ListOperations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.operationsClient.ListOperations, req, settings.GRPC, c.logger, "ListOperations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1536,25 +1575,21 @@ func (c *metadataGRPCClient) ListOperations(ctx context.Context, req *longrunnin
 }
 
 func (c *metadataGRPCClient) WaitOperation(ctx context.Context, req *longrunningpb.WaitOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).WaitOperation[0:len((*c.CallOptions).WaitOperation):len((*c.CallOptions).WaitOperation)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.operationsClient.WaitOperation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.operationsClient.WaitOperation, req, settings.GRPC, c.logger, "WaitOperation")
 		return err
 	}, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return resp, nil
-}
-
-// CreateMetadataStoreOperation manages a long-running operation from CreateMetadataStore.
-type CreateMetadataStoreOperation struct {
-	lro *longrunning.Operation
 }
 
 // CreateMetadataStoreOperation returns a new CreateMetadataStoreOperation from a given name.
@@ -1565,123 +1600,12 @@ func (c *metadataGRPCClient) CreateMetadataStoreOperation(name string) *CreateMe
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *CreateMetadataStoreOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.MetadataStore, error) {
-	var resp aiplatformpb.MetadataStore
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *CreateMetadataStoreOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.MetadataStore, error) {
-	var resp aiplatformpb.MetadataStore
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *CreateMetadataStoreOperation) Metadata() (*aiplatformpb.CreateMetadataStoreOperationMetadata, error) {
-	var meta aiplatformpb.CreateMetadataStoreOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *CreateMetadataStoreOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *CreateMetadataStoreOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteArtifactOperation manages a long-running operation from DeleteArtifact.
-type DeleteArtifactOperation struct {
-	lro *longrunning.Operation
-}
-
 // DeleteArtifactOperation returns a new DeleteArtifactOperation from a given name.
 // The name must be that of a previously created DeleteArtifactOperation, possibly from a different process.
 func (c *metadataGRPCClient) DeleteArtifactOperation(name string) *DeleteArtifactOperation {
 	return &DeleteArtifactOperation{
 		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteArtifactOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteArtifactOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteArtifactOperation) Metadata() (*aiplatformpb.DeleteOperationMetadata, error) {
-	var meta aiplatformpb.DeleteOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteArtifactOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteArtifactOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteContextOperation manages a long-running operation from DeleteContext.
-type DeleteContextOperation struct {
-	lro *longrunning.Operation
 }
 
 // DeleteContextOperation returns a new DeleteContextOperation from a given name.
@@ -1692,112 +1616,12 @@ func (c *metadataGRPCClient) DeleteContextOperation(name string) *DeleteContextO
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteContextOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteContextOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteContextOperation) Metadata() (*aiplatformpb.DeleteOperationMetadata, error) {
-	var meta aiplatformpb.DeleteOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteContextOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteContextOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteExecutionOperation manages a long-running operation from DeleteExecution.
-type DeleteExecutionOperation struct {
-	lro *longrunning.Operation
-}
-
 // DeleteExecutionOperation returns a new DeleteExecutionOperation from a given name.
 // The name must be that of a previously created DeleteExecutionOperation, possibly from a different process.
 func (c *metadataGRPCClient) DeleteExecutionOperation(name string) *DeleteExecutionOperation {
 	return &DeleteExecutionOperation{
 		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteExecutionOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteExecutionOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteExecutionOperation) Metadata() (*aiplatformpb.DeleteOperationMetadata, error) {
-	var meta aiplatformpb.DeleteOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteExecutionOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteExecutionOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteMetadataStoreOperation manages a long-running operation from DeleteMetadataStore.
-type DeleteMetadataStoreOperation struct {
-	lro *longrunning.Operation
 }
 
 // DeleteMetadataStoreOperation returns a new DeleteMetadataStoreOperation from a given name.
@@ -1808,123 +1632,12 @@ func (c *metadataGRPCClient) DeleteMetadataStoreOperation(name string) *DeleteMe
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteMetadataStoreOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteMetadataStoreOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteMetadataStoreOperation) Metadata() (*aiplatformpb.DeleteMetadataStoreOperationMetadata, error) {
-	var meta aiplatformpb.DeleteMetadataStoreOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteMetadataStoreOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteMetadataStoreOperation) Name() string {
-	return op.lro.Name()
-}
-
-// PurgeArtifactsOperation manages a long-running operation from PurgeArtifacts.
-type PurgeArtifactsOperation struct {
-	lro *longrunning.Operation
-}
-
 // PurgeArtifactsOperation returns a new PurgeArtifactsOperation from a given name.
 // The name must be that of a previously created PurgeArtifactsOperation, possibly from a different process.
 func (c *metadataGRPCClient) PurgeArtifactsOperation(name string) *PurgeArtifactsOperation {
 	return &PurgeArtifactsOperation{
 		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *PurgeArtifactsOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.PurgeArtifactsResponse, error) {
-	var resp aiplatformpb.PurgeArtifactsResponse
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *PurgeArtifactsOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.PurgeArtifactsResponse, error) {
-	var resp aiplatformpb.PurgeArtifactsResponse
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *PurgeArtifactsOperation) Metadata() (*aiplatformpb.PurgeArtifactsMetadata, error) {
-	var meta aiplatformpb.PurgeArtifactsMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *PurgeArtifactsOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *PurgeArtifactsOperation) Name() string {
-	return op.lro.Name()
-}
-
-// PurgeContextsOperation manages a long-running operation from PurgeContexts.
-type PurgeContextsOperation struct {
-	lro *longrunning.Operation
 }
 
 // PurgeContextsOperation returns a new PurgeContextsOperation from a given name.
@@ -1935,362 +1648,10 @@ func (c *metadataGRPCClient) PurgeContextsOperation(name string) *PurgeContextsO
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *PurgeContextsOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.PurgeContextsResponse, error) {
-	var resp aiplatformpb.PurgeContextsResponse
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *PurgeContextsOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.PurgeContextsResponse, error) {
-	var resp aiplatformpb.PurgeContextsResponse
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *PurgeContextsOperation) Metadata() (*aiplatformpb.PurgeContextsMetadata, error) {
-	var meta aiplatformpb.PurgeContextsMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *PurgeContextsOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *PurgeContextsOperation) Name() string {
-	return op.lro.Name()
-}
-
-// PurgeExecutionsOperation manages a long-running operation from PurgeExecutions.
-type PurgeExecutionsOperation struct {
-	lro *longrunning.Operation
-}
-
 // PurgeExecutionsOperation returns a new PurgeExecutionsOperation from a given name.
 // The name must be that of a previously created PurgeExecutionsOperation, possibly from a different process.
 func (c *metadataGRPCClient) PurgeExecutionsOperation(name string) *PurgeExecutionsOperation {
 	return &PurgeExecutionsOperation{
 		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *PurgeExecutionsOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.PurgeExecutionsResponse, error) {
-	var resp aiplatformpb.PurgeExecutionsResponse
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *PurgeExecutionsOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.PurgeExecutionsResponse, error) {
-	var resp aiplatformpb.PurgeExecutionsResponse
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *PurgeExecutionsOperation) Metadata() (*aiplatformpb.PurgeExecutionsMetadata, error) {
-	var meta aiplatformpb.PurgeExecutionsMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *PurgeExecutionsOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *PurgeExecutionsOperation) Name() string {
-	return op.lro.Name()
-}
-
-// ArtifactIterator manages a stream of *aiplatformpb.Artifact.
-type ArtifactIterator struct {
-	items    []*aiplatformpb.Artifact
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.Artifact, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ArtifactIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ArtifactIterator) Next() (*aiplatformpb.Artifact, error) {
-	var item *aiplatformpb.Artifact
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ArtifactIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ArtifactIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ContextIterator manages a stream of *aiplatformpb.Context.
-type ContextIterator struct {
-	items    []*aiplatformpb.Context
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.Context, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ContextIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ContextIterator) Next() (*aiplatformpb.Context, error) {
-	var item *aiplatformpb.Context
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ContextIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ContextIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ExecutionIterator manages a stream of *aiplatformpb.Execution.
-type ExecutionIterator struct {
-	items    []*aiplatformpb.Execution
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.Execution, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ExecutionIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ExecutionIterator) Next() (*aiplatformpb.Execution, error) {
-	var item *aiplatformpb.Execution
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ExecutionIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ExecutionIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// MetadataSchemaIterator manages a stream of *aiplatformpb.MetadataSchema.
-type MetadataSchemaIterator struct {
-	items    []*aiplatformpb.MetadataSchema
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.MetadataSchema, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *MetadataSchemaIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *MetadataSchemaIterator) Next() (*aiplatformpb.MetadataSchema, error) {
-	var item *aiplatformpb.MetadataSchema
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *MetadataSchemaIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *MetadataSchemaIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// MetadataStoreIterator manages a stream of *aiplatformpb.MetadataStore.
-type MetadataStoreIterator struct {
-	items    []*aiplatformpb.MetadataStore
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.MetadataStore, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *MetadataStoreIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *MetadataStoreIterator) Next() (*aiplatformpb.MetadataStore, error) {
-	var item *aiplatformpb.MetadataStore
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *MetadataStoreIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *MetadataStoreIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
 }

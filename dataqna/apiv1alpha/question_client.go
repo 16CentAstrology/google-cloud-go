@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -28,14 +28,12 @@ import (
 
 	dataqnapb "cloud.google.com/go/dataqna/apiv1alpha/dataqnapb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -53,10 +51,13 @@ type QuestionCallOptions struct {
 func defaultQuestionGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("dataqna.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("dataqna.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("dataqna.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://dataqna.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -65,6 +66,7 @@ func defaultQuestionGRPCClientOptions() []option.ClientOption {
 func defaultQuestionCallOptions() *QuestionCallOptions {
 	return &QuestionCallOptions{
 		GetQuestion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -75,9 +77,14 @@ func defaultQuestionCallOptions() *QuestionCallOptions {
 				})
 			}),
 		},
-		CreateQuestion:  []gax.CallOption{},
-		ExecuteQuestion: []gax.CallOption{},
+		CreateQuestion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ExecuteQuestion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 		GetUserFeedback: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -88,13 +95,16 @@ func defaultQuestionCallOptions() *QuestionCallOptions {
 				})
 			}),
 		},
-		UpdateUserFeedback: []gax.CallOption{},
+		UpdateUserFeedback: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 	}
 }
 
 func defaultQuestionRESTCallOptions() *QuestionCallOptions {
 	return &QuestionCallOptions{
 		GetQuestion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    1000 * time.Millisecond,
@@ -104,9 +114,14 @@ func defaultQuestionRESTCallOptions() *QuestionCallOptions {
 					http.StatusServiceUnavailable)
 			}),
 		},
-		CreateQuestion:  []gax.CallOption{},
-		ExecuteQuestion: []gax.CallOption{},
+		CreateQuestion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ExecuteQuestion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 		GetUserFeedback: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    1000 * time.Millisecond,
@@ -116,7 +131,9 @@ func defaultQuestionRESTCallOptions() *QuestionCallOptions {
 					http.StatusServiceUnavailable)
 			}),
 		},
-		UpdateUserFeedback: []gax.CallOption{},
+		UpdateUserFeedback: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 	}
 }
 
@@ -214,9 +231,6 @@ type questionGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing QuestionClient
 	CallOptions **QuestionCallOptions
 
@@ -224,7 +238,9 @@ type questionGRPCClient struct {
 	questionClient dataqnapb.QuestionServiceClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewQuestionClient creates a new question service client based on gRPC.
@@ -255,11 +271,6 @@ func NewQuestionClient(ctx context.Context, opts ...option.ClientOption) (*Quest
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -267,10 +278,10 @@ func NewQuestionClient(ctx context.Context, opts ...option.ClientOption) (*Quest
 	client := QuestionClient{CallOptions: defaultQuestionCallOptions()}
 
 	c := &questionGRPCClient{
-		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
-		questionClient:   dataqnapb.NewQuestionServiceClient(connPool),
-		CallOptions:      &client.CallOptions,
+		connPool:       connPool,
+		questionClient: dataqnapb.NewQuestionServiceClient(connPool),
+		CallOptions:    &client.CallOptions,
+		logger:         internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -291,9 +302,11 @@ func (c *questionGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *questionGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -310,11 +323,13 @@ type questionRESTClient struct {
 	// The http client.
 	httpClient *http.Client
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing QuestionClient
 	CallOptions **QuestionCallOptions
+
+	logger *slog.Logger
 }
 
 // NewQuestionRESTClient creates a new question service rest client.
@@ -346,6 +361,7 @@ func NewQuestionRESTClient(ctx context.Context, opts ...option.ClientOption) (*Q
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -355,9 +371,12 @@ func NewQuestionRESTClient(ctx context.Context, opts ...option.ClientOption) (*Q
 func defaultQuestionRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://dataqna.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://dataqna.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://dataqna.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://dataqna.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -365,9 +384,11 @@ func defaultQuestionRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *questionRESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -385,19 +406,15 @@ func (c *questionRESTClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *questionGRPCClient) GetQuestion(ctx context.Context, req *dataqnapb.GetQuestionRequest, opts ...gax.CallOption) (*dataqnapb.Question, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetQuestion[0:len((*c.CallOptions).GetQuestion):len((*c.CallOptions).GetQuestion)], opts...)
 	var resp *dataqnapb.Question
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.questionClient.GetQuestion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.questionClient.GetQuestion, req, settings.GRPC, c.logger, "GetQuestion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -407,19 +424,15 @@ func (c *questionGRPCClient) GetQuestion(ctx context.Context, req *dataqnapb.Get
 }
 
 func (c *questionGRPCClient) CreateQuestion(ctx context.Context, req *dataqnapb.CreateQuestionRequest, opts ...gax.CallOption) (*dataqnapb.Question, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateQuestion[0:len((*c.CallOptions).CreateQuestion):len((*c.CallOptions).CreateQuestion)], opts...)
 	var resp *dataqnapb.Question
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.questionClient.CreateQuestion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.questionClient.CreateQuestion, req, settings.GRPC, c.logger, "CreateQuestion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -429,19 +442,15 @@ func (c *questionGRPCClient) CreateQuestion(ctx context.Context, req *dataqnapb.
 }
 
 func (c *questionGRPCClient) ExecuteQuestion(ctx context.Context, req *dataqnapb.ExecuteQuestionRequest, opts ...gax.CallOption) (*dataqnapb.Question, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ExecuteQuestion[0:len((*c.CallOptions).ExecuteQuestion):len((*c.CallOptions).ExecuteQuestion)], opts...)
 	var resp *dataqnapb.Question
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.questionClient.ExecuteQuestion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.questionClient.ExecuteQuestion, req, settings.GRPC, c.logger, "ExecuteQuestion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -451,19 +460,15 @@ func (c *questionGRPCClient) ExecuteQuestion(ctx context.Context, req *dataqnapb
 }
 
 func (c *questionGRPCClient) GetUserFeedback(ctx context.Context, req *dataqnapb.GetUserFeedbackRequest, opts ...gax.CallOption) (*dataqnapb.UserFeedback, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetUserFeedback[0:len((*c.CallOptions).GetUserFeedback):len((*c.CallOptions).GetUserFeedback)], opts...)
 	var resp *dataqnapb.UserFeedback
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.questionClient.GetUserFeedback(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.questionClient.GetUserFeedback, req, settings.GRPC, c.logger, "GetUserFeedback")
 		return err
 	}, opts...)
 	if err != nil {
@@ -473,19 +478,15 @@ func (c *questionGRPCClient) GetUserFeedback(ctx context.Context, req *dataqnapb
 }
 
 func (c *questionGRPCClient) UpdateUserFeedback(ctx context.Context, req *dataqnapb.UpdateUserFeedbackRequest, opts ...gax.CallOption) (*dataqnapb.UserFeedback, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "user_feedback.name", url.QueryEscape(req.GetUserFeedback().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "user_feedback.name", url.QueryEscape(req.GetUserFeedback().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateUserFeedback[0:len((*c.CallOptions).UpdateUserFeedback):len((*c.CallOptions).UpdateUserFeedback)], opts...)
 	var resp *dataqnapb.UserFeedback
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.questionClient.UpdateUserFeedback(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.questionClient.UpdateUserFeedback, req, settings.GRPC, c.logger, "UpdateUserFeedback")
 		return err
 	}, opts...)
 	if err != nil {
@@ -504,19 +505,21 @@ func (c *questionRESTClient) GetQuestion(ctx context.Context, req *dataqnapb.Get
 
 	params := url.Values{}
 	if req.GetReadMask() != nil {
-		readMask, err := protojson.Marshal(req.GetReadMask())
+		field, err := protojson.Marshal(req.GetReadMask())
 		if err != nil {
 			return nil, err
 		}
-		params.Add("readMask", string(readMask))
+		params.Add("readMask", string(field[1:len(field)-1]))
 	}
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetQuestion[0:len((*c.CallOptions).GetQuestion):len((*c.CallOptions).GetQuestion)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataqnapb.Question{}
@@ -531,23 +534,13 @@ func (c *questionRESTClient) GetQuestion(ctx context.Context, req *dataqnapb.Get
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetQuestion")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -574,9 +567,11 @@ func (c *questionRESTClient) CreateQuestion(ctx context.Context, req *dataqnapb.
 	baseUrl.Path += fmt.Sprintf("/v1alpha/%v/questions", req.GetParent())
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).CreateQuestion[0:len((*c.CallOptions).CreateQuestion):len((*c.CallOptions).CreateQuestion)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataqnapb.Question{}
@@ -591,23 +586,13 @@ func (c *questionRESTClient) CreateQuestion(ctx context.Context, req *dataqnapb.
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateQuestion")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -633,9 +618,11 @@ func (c *questionRESTClient) ExecuteQuestion(ctx context.Context, req *dataqnapb
 	baseUrl.Path += fmt.Sprintf("/v1alpha/%v:execute", req.GetName())
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).ExecuteQuestion[0:len((*c.CallOptions).ExecuteQuestion):len((*c.CallOptions).ExecuteQuestion)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataqnapb.Question{}
@@ -650,23 +637,13 @@ func (c *questionRESTClient) ExecuteQuestion(ctx context.Context, req *dataqnapb
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "ExecuteQuestion")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -686,9 +663,11 @@ func (c *questionRESTClient) GetUserFeedback(ctx context.Context, req *dataqnapb
 	baseUrl.Path += fmt.Sprintf("/v1alpha/%v", req.GetName())
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetUserFeedback[0:len((*c.CallOptions).GetUserFeedback):len((*c.CallOptions).GetUserFeedback)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataqnapb.UserFeedback{}
@@ -703,23 +682,13 @@ func (c *questionRESTClient) GetUserFeedback(ctx context.Context, req *dataqnapb
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetUserFeedback")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -748,19 +717,21 @@ func (c *questionRESTClient) UpdateUserFeedback(ctx context.Context, req *dataqn
 
 	params := url.Values{}
 	if req.GetUpdateMask() != nil {
-		updateMask, err := protojson.Marshal(req.GetUpdateMask())
+		field, err := protojson.Marshal(req.GetUpdateMask())
 		if err != nil {
 			return nil, err
 		}
-		params.Add("updateMask", string(updateMask))
+		params.Add("updateMask", string(field[1:len(field)-1]))
 	}
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "user_feedback.name", url.QueryEscape(req.GetUserFeedback().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "user_feedback.name", url.QueryEscape(req.GetUserFeedback().GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateUserFeedback[0:len((*c.CallOptions).UpdateUserFeedback):len((*c.CallOptions).UpdateUserFeedback)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataqnapb.UserFeedback{}
@@ -775,23 +746,13 @@ func (c *questionRESTClient) UpdateUserFeedback(ctx context.Context, req *dataqn
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateUserFeedback")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil

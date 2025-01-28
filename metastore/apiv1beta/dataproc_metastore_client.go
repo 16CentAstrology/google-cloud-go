@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,28 +20,26 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
 	"time"
 
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/longrunning"
 	lroauto "cloud.google.com/go/longrunning/autogen"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	metastorepb "cloud.google.com/go/metastore/apiv1beta/metastorepb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -50,38 +48,46 @@ var newDataprocMetastoreClientHook clientHook
 
 // DataprocMetastoreCallOptions contains the retry settings for each method of DataprocMetastoreClient.
 type DataprocMetastoreCallOptions struct {
-	ListServices         []gax.CallOption
-	GetService           []gax.CallOption
-	CreateService        []gax.CallOption
-	UpdateService        []gax.CallOption
-	DeleteService        []gax.CallOption
-	ListMetadataImports  []gax.CallOption
-	GetMetadataImport    []gax.CallOption
-	CreateMetadataImport []gax.CallOption
-	UpdateMetadataImport []gax.CallOption
-	ExportMetadata       []gax.CallOption
-	RestoreService       []gax.CallOption
-	ListBackups          []gax.CallOption
-	GetBackup            []gax.CallOption
-	CreateBackup         []gax.CallOption
-	DeleteBackup         []gax.CallOption
-	GetLocation          []gax.CallOption
-	ListLocations        []gax.CallOption
-	GetIamPolicy         []gax.CallOption
-	SetIamPolicy         []gax.CallOption
-	TestIamPermissions   []gax.CallOption
-	DeleteOperation      []gax.CallOption
-	GetOperation         []gax.CallOption
-	ListOperations       []gax.CallOption
+	ListServices                  []gax.CallOption
+	GetService                    []gax.CallOption
+	CreateService                 []gax.CallOption
+	UpdateService                 []gax.CallOption
+	DeleteService                 []gax.CallOption
+	ListMetadataImports           []gax.CallOption
+	GetMetadataImport             []gax.CallOption
+	CreateMetadataImport          []gax.CallOption
+	UpdateMetadataImport          []gax.CallOption
+	ExportMetadata                []gax.CallOption
+	RestoreService                []gax.CallOption
+	ListBackups                   []gax.CallOption
+	GetBackup                     []gax.CallOption
+	CreateBackup                  []gax.CallOption
+	DeleteBackup                  []gax.CallOption
+	RemoveIamPolicy               []gax.CallOption
+	QueryMetadata                 []gax.CallOption
+	MoveTableToDatabase           []gax.CallOption
+	AlterMetadataResourceLocation []gax.CallOption
+	GetLocation                   []gax.CallOption
+	ListLocations                 []gax.CallOption
+	GetIamPolicy                  []gax.CallOption
+	SetIamPolicy                  []gax.CallOption
+	TestIamPermissions            []gax.CallOption
+	CancelOperation               []gax.CallOption
+	DeleteOperation               []gax.CallOption
+	GetOperation                  []gax.CallOption
+	ListOperations                []gax.CallOption
 }
 
 func defaultDataprocMetastoreGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("metastore.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("metastore.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("metastore.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://metastore.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -90,6 +96,7 @@ func defaultDataprocMetastoreGRPCClientOptions() []option.ClientOption {
 func defaultDataprocMetastoreCallOptions() *DataprocMetastoreCallOptions {
 	return &DataprocMetastoreCallOptions{
 		ListServices: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -101,6 +108,7 @@ func defaultDataprocMetastoreCallOptions() *DataprocMetastoreCallOptions {
 			}),
 		},
 		GetService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -111,10 +119,17 @@ func defaultDataprocMetastoreCallOptions() *DataprocMetastoreCallOptions {
 				})
 			}),
 		},
-		CreateService: []gax.CallOption{},
-		UpdateService: []gax.CallOption{},
-		DeleteService: []gax.CallOption{},
+		CreateService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 		ListMetadataImports: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -126,6 +141,7 @@ func defaultDataprocMetastoreCallOptions() *DataprocMetastoreCallOptions {
 			}),
 		},
 		GetMetadataImport: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -136,11 +152,20 @@ func defaultDataprocMetastoreCallOptions() *DataprocMetastoreCallOptions {
 				})
 			}),
 		},
-		CreateMetadataImport: []gax.CallOption{},
-		UpdateMetadataImport: []gax.CallOption{},
-		ExportMetadata:       []gax.CallOption{},
-		RestoreService:       []gax.CallOption{},
+		CreateMetadataImport: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateMetadataImport: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ExportMetadata: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		RestoreService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 		ListBackups: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -152,6 +177,7 @@ func defaultDataprocMetastoreCallOptions() *DataprocMetastoreCallOptions {
 			}),
 		},
 		GetBackup: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -162,13 +188,66 @@ func defaultDataprocMetastoreCallOptions() *DataprocMetastoreCallOptions {
 				})
 			}),
 		},
-		CreateBackup:       []gax.CallOption{},
-		DeleteBackup:       []gax.CallOption{},
+		CreateBackup: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteBackup: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		RemoveIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnCodes([]codes.Code{
+					codes.Unavailable,
+				}, gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				})
+			}),
+		},
+		QueryMetadata: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnCodes([]codes.Code{
+					codes.Unavailable,
+				}, gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				})
+			}),
+		},
+		MoveTableToDatabase: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnCodes([]codes.Code{
+					codes.Unavailable,
+				}, gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				})
+			}),
+		},
+		AlterMetadataResourceLocation: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnCodes([]codes.Code{
+					codes.Unavailable,
+				}, gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				})
+			}),
+		},
 		GetLocation:        []gax.CallOption{},
 		ListLocations:      []gax.CallOption{},
 		GetIamPolicy:       []gax.CallOption{},
 		SetIamPolicy:       []gax.CallOption{},
 		TestIamPermissions: []gax.CallOption{},
+		CancelOperation:    []gax.CallOption{},
 		DeleteOperation:    []gax.CallOption{},
 		GetOperation:       []gax.CallOption{},
 		ListOperations:     []gax.CallOption{},
@@ -178,6 +257,7 @@ func defaultDataprocMetastoreCallOptions() *DataprocMetastoreCallOptions {
 func defaultDataprocMetastoreRESTCallOptions() *DataprocMetastoreCallOptions {
 	return &DataprocMetastoreCallOptions{
 		ListServices: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    1000 * time.Millisecond,
@@ -188,6 +268,7 @@ func defaultDataprocMetastoreRESTCallOptions() *DataprocMetastoreCallOptions {
 			}),
 		},
 		GetService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    1000 * time.Millisecond,
@@ -197,10 +278,17 @@ func defaultDataprocMetastoreRESTCallOptions() *DataprocMetastoreCallOptions {
 					http.StatusServiceUnavailable)
 			}),
 		},
-		CreateService: []gax.CallOption{},
-		UpdateService: []gax.CallOption{},
-		DeleteService: []gax.CallOption{},
+		CreateService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 		ListMetadataImports: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    1000 * time.Millisecond,
@@ -211,6 +299,7 @@ func defaultDataprocMetastoreRESTCallOptions() *DataprocMetastoreCallOptions {
 			}),
 		},
 		GetMetadataImport: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    1000 * time.Millisecond,
@@ -220,11 +309,20 @@ func defaultDataprocMetastoreRESTCallOptions() *DataprocMetastoreCallOptions {
 					http.StatusServiceUnavailable)
 			}),
 		},
-		CreateMetadataImport: []gax.CallOption{},
-		UpdateMetadataImport: []gax.CallOption{},
-		ExportMetadata:       []gax.CallOption{},
-		RestoreService:       []gax.CallOption{},
+		CreateMetadataImport: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateMetadataImport: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ExportMetadata: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		RestoreService: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 		ListBackups: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    1000 * time.Millisecond,
@@ -235,6 +333,7 @@ func defaultDataprocMetastoreRESTCallOptions() *DataprocMetastoreCallOptions {
 			}),
 		},
 		GetBackup: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    1000 * time.Millisecond,
@@ -244,13 +343,62 @@ func defaultDataprocMetastoreRESTCallOptions() *DataprocMetastoreCallOptions {
 					http.StatusServiceUnavailable)
 			}),
 		},
-		CreateBackup:       []gax.CallOption{},
-		DeleteBackup:       []gax.CallOption{},
+		CreateBackup: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteBackup: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		RemoveIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusServiceUnavailable)
+			}),
+		},
+		QueryMetadata: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusServiceUnavailable)
+			}),
+		},
+		MoveTableToDatabase: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusServiceUnavailable)
+			}),
+		},
+		AlterMetadataResourceLocation: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusServiceUnavailable)
+			}),
+		},
 		GetLocation:        []gax.CallOption{},
 		ListLocations:      []gax.CallOption{},
 		GetIamPolicy:       []gax.CallOption{},
 		SetIamPolicy:       []gax.CallOption{},
 		TestIamPermissions: []gax.CallOption{},
+		CancelOperation:    []gax.CallOption{},
 		DeleteOperation:    []gax.CallOption{},
 		GetOperation:       []gax.CallOption{},
 		ListOperations:     []gax.CallOption{},
@@ -286,11 +434,19 @@ type internalDataprocMetastoreClient interface {
 	CreateBackupOperation(name string) *CreateBackupOperation
 	DeleteBackup(context.Context, *metastorepb.DeleteBackupRequest, ...gax.CallOption) (*DeleteBackupOperation, error)
 	DeleteBackupOperation(name string) *DeleteBackupOperation
+	RemoveIamPolicy(context.Context, *metastorepb.RemoveIamPolicyRequest, ...gax.CallOption) (*metastorepb.RemoveIamPolicyResponse, error)
+	QueryMetadata(context.Context, *metastorepb.QueryMetadataRequest, ...gax.CallOption) (*QueryMetadataOperation, error)
+	QueryMetadataOperation(name string) *QueryMetadataOperation
+	MoveTableToDatabase(context.Context, *metastorepb.MoveTableToDatabaseRequest, ...gax.CallOption) (*MoveTableToDatabaseOperation, error)
+	MoveTableToDatabaseOperation(name string) *MoveTableToDatabaseOperation
+	AlterMetadataResourceLocation(context.Context, *metastorepb.AlterMetadataResourceLocationRequest, ...gax.CallOption) (*AlterMetadataResourceLocationOperation, error)
+	AlterMetadataResourceLocationOperation(name string) *AlterMetadataResourceLocationOperation
 	GetLocation(context.Context, *locationpb.GetLocationRequest, ...gax.CallOption) (*locationpb.Location, error)
 	ListLocations(context.Context, *locationpb.ListLocationsRequest, ...gax.CallOption) *LocationIterator
 	GetIamPolicy(context.Context, *iampb.GetIamPolicyRequest, ...gax.CallOption) (*iampb.Policy, error)
 	SetIamPolicy(context.Context, *iampb.SetIamPolicyRequest, ...gax.CallOption) (*iampb.Policy, error)
 	TestIamPermissions(context.Context, *iampb.TestIamPermissionsRequest, ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error)
+	CancelOperation(context.Context, *longrunningpb.CancelOperationRequest, ...gax.CallOption) error
 	DeleteOperation(context.Context, *longrunningpb.DeleteOperationRequest, ...gax.CallOption) error
 	GetOperation(context.Context, *longrunningpb.GetOperationRequest, ...gax.CallOption) (*longrunningpb.Operation, error)
 	ListOperations(context.Context, *longrunningpb.ListOperationsRequest, ...gax.CallOption) *OperationIterator
@@ -485,6 +641,47 @@ func (c *DataprocMetastoreClient) DeleteBackupOperation(name string) *DeleteBack
 	return c.internalClient.DeleteBackupOperation(name)
 }
 
+// RemoveIamPolicy removes the attached IAM policies for a resource
+func (c *DataprocMetastoreClient) RemoveIamPolicy(ctx context.Context, req *metastorepb.RemoveIamPolicyRequest, opts ...gax.CallOption) (*metastorepb.RemoveIamPolicyResponse, error) {
+	return c.internalClient.RemoveIamPolicy(ctx, req, opts...)
+}
+
+// QueryMetadata query DPMS metadata.
+func (c *DataprocMetastoreClient) QueryMetadata(ctx context.Context, req *metastorepb.QueryMetadataRequest, opts ...gax.CallOption) (*QueryMetadataOperation, error) {
+	return c.internalClient.QueryMetadata(ctx, req, opts...)
+}
+
+// QueryMetadataOperation returns a new QueryMetadataOperation from a given name.
+// The name must be that of a previously created QueryMetadataOperation, possibly from a different process.
+func (c *DataprocMetastoreClient) QueryMetadataOperation(name string) *QueryMetadataOperation {
+	return c.internalClient.QueryMetadataOperation(name)
+}
+
+// MoveTableToDatabase move a table to another database.
+func (c *DataprocMetastoreClient) MoveTableToDatabase(ctx context.Context, req *metastorepb.MoveTableToDatabaseRequest, opts ...gax.CallOption) (*MoveTableToDatabaseOperation, error) {
+	return c.internalClient.MoveTableToDatabase(ctx, req, opts...)
+}
+
+// MoveTableToDatabaseOperation returns a new MoveTableToDatabaseOperation from a given name.
+// The name must be that of a previously created MoveTableToDatabaseOperation, possibly from a different process.
+func (c *DataprocMetastoreClient) MoveTableToDatabaseOperation(name string) *MoveTableToDatabaseOperation {
+	return c.internalClient.MoveTableToDatabaseOperation(name)
+}
+
+// AlterMetadataResourceLocation alter metadata resource location. The metadata resource can be a database,
+// table, or partition. This functionality only updates the parent directory
+// for the respective metadata resource and does not transfer any existing
+// data to the new location.
+func (c *DataprocMetastoreClient) AlterMetadataResourceLocation(ctx context.Context, req *metastorepb.AlterMetadataResourceLocationRequest, opts ...gax.CallOption) (*AlterMetadataResourceLocationOperation, error) {
+	return c.internalClient.AlterMetadataResourceLocation(ctx, req, opts...)
+}
+
+// AlterMetadataResourceLocationOperation returns a new AlterMetadataResourceLocationOperation from a given name.
+// The name must be that of a previously created AlterMetadataResourceLocationOperation, possibly from a different process.
+func (c *DataprocMetastoreClient) AlterMetadataResourceLocationOperation(name string) *AlterMetadataResourceLocationOperation {
+	return c.internalClient.AlterMetadataResourceLocationOperation(name)
+}
+
 // GetLocation gets information about a location.
 func (c *DataprocMetastoreClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
 	return c.internalClient.GetLocation(ctx, req, opts...)
@@ -521,6 +718,11 @@ func (c *DataprocMetastoreClient) TestIamPermissions(ctx context.Context, req *i
 	return c.internalClient.TestIamPermissions(ctx, req, opts...)
 }
 
+// CancelOperation is a utility method from google.longrunning.Operations.
+func (c *DataprocMetastoreClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
+	return c.internalClient.CancelOperation(ctx, req, opts...)
+}
+
 // DeleteOperation is a utility method from google.longrunning.Operations.
 func (c *DataprocMetastoreClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
 	return c.internalClient.DeleteOperation(ctx, req, opts...)
@@ -543,9 +745,6 @@ type dataprocMetastoreGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing DataprocMetastoreClient
 	CallOptions **DataprocMetastoreCallOptions
 
@@ -564,7 +763,9 @@ type dataprocMetastoreGRPCClient struct {
 	locationsClient locationpb.LocationsClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewDataprocMetastoreClient creates a new dataproc metastore client based on gRPC.
@@ -600,11 +801,6 @@ func NewDataprocMetastoreClient(ctx context.Context, opts ...option.ClientOption
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -613,9 +809,9 @@ func NewDataprocMetastoreClient(ctx context.Context, opts ...option.ClientOption
 
 	c := &dataprocMetastoreGRPCClient{
 		connPool:                connPool,
-		disableDeadlines:        disableDeadlines,
 		dataprocMetastoreClient: metastorepb.NewDataprocMetastoreClient(connPool),
 		CallOptions:             &client.CallOptions,
+		logger:                  internaloption.GetLogger(opts),
 		operationsClient:        longrunningpb.NewOperationsClient(connPool),
 		iamPolicyClient:         iampb.NewIAMPolicyClient(connPool),
 		locationsClient:         locationpb.NewLocationsClient(connPool),
@@ -650,9 +846,11 @@ func (c *dataprocMetastoreGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *dataprocMetastoreGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -674,11 +872,13 @@ type dataprocMetastoreRESTClient struct {
 	// Users should not Close this client.
 	LROClient **lroauto.OperationsClient
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing DataprocMetastoreClient
 	CallOptions **DataprocMetastoreCallOptions
+
+	logger *slog.Logger
 }
 
 // NewDataprocMetastoreRESTClient creates a new dataproc metastore rest client.
@@ -715,6 +915,7 @@ func NewDataprocMetastoreRESTClient(ctx context.Context, opts ...option.ClientOp
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -734,9 +935,12 @@ func NewDataprocMetastoreRESTClient(ctx context.Context, opts ...option.ClientOp
 func defaultDataprocMetastoreRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://metastore.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://metastore.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://metastore.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://metastore.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -744,9 +948,11 @@ func defaultDataprocMetastoreRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *dataprocMetastoreRESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -764,9 +970,10 @@ func (c *dataprocMetastoreRESTClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *dataprocMetastoreGRPCClient) ListServices(ctx context.Context, req *metastorepb.ListServicesRequest, opts ...gax.CallOption) *ServiceIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListServices[0:len((*c.CallOptions).ListServices):len((*c.CallOptions).ListServices)], opts...)
 	it := &ServiceIterator{}
 	req = proto.Clone(req).(*metastorepb.ListServicesRequest)
@@ -782,7 +989,7 @@ func (c *dataprocMetastoreGRPCClient) ListServices(ctx context.Context, req *met
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.dataprocMetastoreClient.ListServices(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.dataprocMetastoreClient.ListServices, req, settings.GRPC, c.logger, "ListServices")
 			return err
 		}, opts...)
 		if err != nil {
@@ -809,19 +1016,15 @@ func (c *dataprocMetastoreGRPCClient) ListServices(ctx context.Context, req *met
 }
 
 func (c *dataprocMetastoreGRPCClient) GetService(ctx context.Context, req *metastorepb.GetServiceRequest, opts ...gax.CallOption) (*metastorepb.Service, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetService[0:len((*c.CallOptions).GetService):len((*c.CallOptions).GetService)], opts...)
 	var resp *metastorepb.Service
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.GetService(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.GetService, req, settings.GRPC, c.logger, "GetService")
 		return err
 	}, opts...)
 	if err != nil {
@@ -831,19 +1034,15 @@ func (c *dataprocMetastoreGRPCClient) GetService(ctx context.Context, req *metas
 }
 
 func (c *dataprocMetastoreGRPCClient) CreateService(ctx context.Context, req *metastorepb.CreateServiceRequest, opts ...gax.CallOption) (*CreateServiceOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateService[0:len((*c.CallOptions).CreateService):len((*c.CallOptions).CreateService)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.CreateService(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.CreateService, req, settings.GRPC, c.logger, "CreateService")
 		return err
 	}, opts...)
 	if err != nil {
@@ -855,19 +1054,15 @@ func (c *dataprocMetastoreGRPCClient) CreateService(ctx context.Context, req *me
 }
 
 func (c *dataprocMetastoreGRPCClient) UpdateService(ctx context.Context, req *metastorepb.UpdateServiceRequest, opts ...gax.CallOption) (*UpdateServiceOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "service.name", url.QueryEscape(req.GetService().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service.name", url.QueryEscape(req.GetService().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateService[0:len((*c.CallOptions).UpdateService):len((*c.CallOptions).UpdateService)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.UpdateService(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.UpdateService, req, settings.GRPC, c.logger, "UpdateService")
 		return err
 	}, opts...)
 	if err != nil {
@@ -879,19 +1074,15 @@ func (c *dataprocMetastoreGRPCClient) UpdateService(ctx context.Context, req *me
 }
 
 func (c *dataprocMetastoreGRPCClient) DeleteService(ctx context.Context, req *metastorepb.DeleteServiceRequest, opts ...gax.CallOption) (*DeleteServiceOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteService[0:len((*c.CallOptions).DeleteService):len((*c.CallOptions).DeleteService)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.DeleteService(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.DeleteService, req, settings.GRPC, c.logger, "DeleteService")
 		return err
 	}, opts...)
 	if err != nil {
@@ -903,9 +1094,10 @@ func (c *dataprocMetastoreGRPCClient) DeleteService(ctx context.Context, req *me
 }
 
 func (c *dataprocMetastoreGRPCClient) ListMetadataImports(ctx context.Context, req *metastorepb.ListMetadataImportsRequest, opts ...gax.CallOption) *MetadataImportIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListMetadataImports[0:len((*c.CallOptions).ListMetadataImports):len((*c.CallOptions).ListMetadataImports)], opts...)
 	it := &MetadataImportIterator{}
 	req = proto.Clone(req).(*metastorepb.ListMetadataImportsRequest)
@@ -921,7 +1113,7 @@ func (c *dataprocMetastoreGRPCClient) ListMetadataImports(ctx context.Context, r
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.dataprocMetastoreClient.ListMetadataImports(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.dataprocMetastoreClient.ListMetadataImports, req, settings.GRPC, c.logger, "ListMetadataImports")
 			return err
 		}, opts...)
 		if err != nil {
@@ -948,19 +1140,15 @@ func (c *dataprocMetastoreGRPCClient) ListMetadataImports(ctx context.Context, r
 }
 
 func (c *dataprocMetastoreGRPCClient) GetMetadataImport(ctx context.Context, req *metastorepb.GetMetadataImportRequest, opts ...gax.CallOption) (*metastorepb.MetadataImport, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetMetadataImport[0:len((*c.CallOptions).GetMetadataImport):len((*c.CallOptions).GetMetadataImport)], opts...)
 	var resp *metastorepb.MetadataImport
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.GetMetadataImport(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.GetMetadataImport, req, settings.GRPC, c.logger, "GetMetadataImport")
 		return err
 	}, opts...)
 	if err != nil {
@@ -970,19 +1158,15 @@ func (c *dataprocMetastoreGRPCClient) GetMetadataImport(ctx context.Context, req
 }
 
 func (c *dataprocMetastoreGRPCClient) CreateMetadataImport(ctx context.Context, req *metastorepb.CreateMetadataImportRequest, opts ...gax.CallOption) (*CreateMetadataImportOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateMetadataImport[0:len((*c.CallOptions).CreateMetadataImport):len((*c.CallOptions).CreateMetadataImport)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.CreateMetadataImport(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.CreateMetadataImport, req, settings.GRPC, c.logger, "CreateMetadataImport")
 		return err
 	}, opts...)
 	if err != nil {
@@ -994,19 +1178,15 @@ func (c *dataprocMetastoreGRPCClient) CreateMetadataImport(ctx context.Context, 
 }
 
 func (c *dataprocMetastoreGRPCClient) UpdateMetadataImport(ctx context.Context, req *metastorepb.UpdateMetadataImportRequest, opts ...gax.CallOption) (*UpdateMetadataImportOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "metadata_import.name", url.QueryEscape(req.GetMetadataImport().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "metadata_import.name", url.QueryEscape(req.GetMetadataImport().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateMetadataImport[0:len((*c.CallOptions).UpdateMetadataImport):len((*c.CallOptions).UpdateMetadataImport)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.UpdateMetadataImport(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.UpdateMetadataImport, req, settings.GRPC, c.logger, "UpdateMetadataImport")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1018,19 +1198,15 @@ func (c *dataprocMetastoreGRPCClient) UpdateMetadataImport(ctx context.Context, 
 }
 
 func (c *dataprocMetastoreGRPCClient) ExportMetadata(ctx context.Context, req *metastorepb.ExportMetadataRequest, opts ...gax.CallOption) (*ExportMetadataOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ExportMetadata[0:len((*c.CallOptions).ExportMetadata):len((*c.CallOptions).ExportMetadata)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.ExportMetadata(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.ExportMetadata, req, settings.GRPC, c.logger, "ExportMetadata")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1042,19 +1218,15 @@ func (c *dataprocMetastoreGRPCClient) ExportMetadata(ctx context.Context, req *m
 }
 
 func (c *dataprocMetastoreGRPCClient) RestoreService(ctx context.Context, req *metastorepb.RestoreServiceRequest, opts ...gax.CallOption) (*RestoreServiceOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).RestoreService[0:len((*c.CallOptions).RestoreService):len((*c.CallOptions).RestoreService)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.RestoreService(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.RestoreService, req, settings.GRPC, c.logger, "RestoreService")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1066,9 +1238,10 @@ func (c *dataprocMetastoreGRPCClient) RestoreService(ctx context.Context, req *m
 }
 
 func (c *dataprocMetastoreGRPCClient) ListBackups(ctx context.Context, req *metastorepb.ListBackupsRequest, opts ...gax.CallOption) *BackupIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListBackups[0:len((*c.CallOptions).ListBackups):len((*c.CallOptions).ListBackups)], opts...)
 	it := &BackupIterator{}
 	req = proto.Clone(req).(*metastorepb.ListBackupsRequest)
@@ -1084,7 +1257,7 @@ func (c *dataprocMetastoreGRPCClient) ListBackups(ctx context.Context, req *meta
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.dataprocMetastoreClient.ListBackups(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.dataprocMetastoreClient.ListBackups, req, settings.GRPC, c.logger, "ListBackups")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1111,19 +1284,15 @@ func (c *dataprocMetastoreGRPCClient) ListBackups(ctx context.Context, req *meta
 }
 
 func (c *dataprocMetastoreGRPCClient) GetBackup(ctx context.Context, req *metastorepb.GetBackupRequest, opts ...gax.CallOption) (*metastorepb.Backup, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetBackup[0:len((*c.CallOptions).GetBackup):len((*c.CallOptions).GetBackup)], opts...)
 	var resp *metastorepb.Backup
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.GetBackup(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.GetBackup, req, settings.GRPC, c.logger, "GetBackup")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1133,19 +1302,15 @@ func (c *dataprocMetastoreGRPCClient) GetBackup(ctx context.Context, req *metast
 }
 
 func (c *dataprocMetastoreGRPCClient) CreateBackup(ctx context.Context, req *metastorepb.CreateBackupRequest, opts ...gax.CallOption) (*CreateBackupOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateBackup[0:len((*c.CallOptions).CreateBackup):len((*c.CallOptions).CreateBackup)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.CreateBackup(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.CreateBackup, req, settings.GRPC, c.logger, "CreateBackup")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1157,19 +1322,15 @@ func (c *dataprocMetastoreGRPCClient) CreateBackup(ctx context.Context, req *met
 }
 
 func (c *dataprocMetastoreGRPCClient) DeleteBackup(ctx context.Context, req *metastorepb.DeleteBackupRequest, opts ...gax.CallOption) (*DeleteBackupOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteBackup[0:len((*c.CallOptions).DeleteBackup):len((*c.CallOptions).DeleteBackup)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dataprocMetastoreClient.DeleteBackup(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.DeleteBackup, req, settings.GRPC, c.logger, "DeleteBackup")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1180,15 +1341,94 @@ func (c *dataprocMetastoreGRPCClient) DeleteBackup(ctx context.Context, req *met
 	}, nil
 }
 
-func (c *dataprocMetastoreGRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+func (c *dataprocMetastoreGRPCClient) RemoveIamPolicy(ctx context.Context, req *metastorepb.RemoveIamPolicyRequest, opts ...gax.CallOption) (*metastorepb.RemoveIamPolicyResponse, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).RemoveIamPolicy[0:len((*c.CallOptions).RemoveIamPolicy):len((*c.CallOptions).RemoveIamPolicy)], opts...)
+	var resp *metastorepb.RemoveIamPolicyResponse
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.RemoveIamPolicy, req, settings.GRPC, c.logger, "RemoveIamPolicy")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *dataprocMetastoreGRPCClient) QueryMetadata(ctx context.Context, req *metastorepb.QueryMetadataRequest, opts ...gax.CallOption) (*QueryMetadataOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).QueryMetadata[0:len((*c.CallOptions).QueryMetadata):len((*c.CallOptions).QueryMetadata)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.QueryMetadata, req, settings.GRPC, c.logger, "QueryMetadata")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &QueryMetadataOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *dataprocMetastoreGRPCClient) MoveTableToDatabase(ctx context.Context, req *metastorepb.MoveTableToDatabaseRequest, opts ...gax.CallOption) (*MoveTableToDatabaseOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).MoveTableToDatabase[0:len((*c.CallOptions).MoveTableToDatabase):len((*c.CallOptions).MoveTableToDatabase)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.MoveTableToDatabase, req, settings.GRPC, c.logger, "MoveTableToDatabase")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &MoveTableToDatabaseOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *dataprocMetastoreGRPCClient) AlterMetadataResourceLocation(ctx context.Context, req *metastorepb.AlterMetadataResourceLocationRequest, opts ...gax.CallOption) (*AlterMetadataResourceLocationOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).AlterMetadataResourceLocation[0:len((*c.CallOptions).AlterMetadataResourceLocation):len((*c.CallOptions).AlterMetadataResourceLocation)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.dataprocMetastoreClient.AlterMetadataResourceLocation, req, settings.GRPC, c.logger, "AlterMetadataResourceLocation")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &AlterMetadataResourceLocationOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *dataprocMetastoreGRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
 	var resp *locationpb.Location
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.locationsClient.GetLocation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.locationsClient.GetLocation, req, settings.GRPC, c.logger, "GetLocation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1198,9 +1438,10 @@ func (c *dataprocMetastoreGRPCClient) GetLocation(ctx context.Context, req *loca
 }
 
 func (c *dataprocMetastoreGRPCClient) ListLocations(ctx context.Context, req *locationpb.ListLocationsRequest, opts ...gax.CallOption) *LocationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListLocations[0:len((*c.CallOptions).ListLocations):len((*c.CallOptions).ListLocations)], opts...)
 	it := &LocationIterator{}
 	req = proto.Clone(req).(*locationpb.ListLocationsRequest)
@@ -1216,7 +1457,7 @@ func (c *dataprocMetastoreGRPCClient) ListLocations(ctx context.Context, req *lo
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.locationsClient.ListLocations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.locationsClient.ListLocations, req, settings.GRPC, c.logger, "ListLocations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1243,14 +1484,15 @@ func (c *dataprocMetastoreGRPCClient) ListLocations(ctx context.Context, req *lo
 }
 
 func (c *dataprocMetastoreGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.GetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.GetIamPolicy, req, settings.GRPC, c.logger, "GetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1260,14 +1502,15 @@ func (c *dataprocMetastoreGRPCClient) GetIamPolicy(ctx context.Context, req *iam
 }
 
 func (c *dataprocMetastoreGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.SetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.SetIamPolicy, req, settings.GRPC, c.logger, "SetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1277,14 +1520,15 @@ func (c *dataprocMetastoreGRPCClient) SetIamPolicy(ctx context.Context, req *iam
 }
 
 func (c *dataprocMetastoreGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	var resp *iampb.TestIamPermissionsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.TestIamPermissions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.TestIamPermissions, req, settings.GRPC, c.logger, "TestIamPermissions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1293,28 +1537,44 @@ func (c *dataprocMetastoreGRPCClient) TestIamPermissions(ctx context.Context, re
 	return resp, nil
 }
 
-func (c *dataprocMetastoreGRPCClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+func (c *dataprocMetastoreGRPCClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).CancelOperation[0:len((*c.CallOptions).CancelOperation):len((*c.CallOptions).CancelOperation)], opts...)
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		_, err = executeRPC(ctx, c.operationsClient.CancelOperation, req, settings.GRPC, c.logger, "CancelOperation")
+		return err
+	}, opts...)
+	return err
+}
+
+func (c *dataprocMetastoreGRPCClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteOperation[0:len((*c.CallOptions).DeleteOperation):len((*c.CallOptions).DeleteOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.DeleteOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.DeleteOperation, req, settings.GRPC, c.logger, "DeleteOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *dataprocMetastoreGRPCClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.operationsClient.GetOperation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.operationsClient.GetOperation, req, settings.GRPC, c.logger, "GetOperation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1324,9 +1584,10 @@ func (c *dataprocMetastoreGRPCClient) GetOperation(ctx context.Context, req *lon
 }
 
 func (c *dataprocMetastoreGRPCClient) ListOperations(ctx context.Context, req *longrunningpb.ListOperationsRequest, opts ...gax.CallOption) *OperationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListOperations[0:len((*c.CallOptions).ListOperations):len((*c.CallOptions).ListOperations)], opts...)
 	it := &OperationIterator{}
 	req = proto.Clone(req).(*longrunningpb.ListOperationsRequest)
@@ -1342,7 +1603,7 @@ func (c *dataprocMetastoreGRPCClient) ListOperations(ctx context.Context, req *l
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.operationsClient.ListOperations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.operationsClient.ListOperations, req, settings.GRPC, c.logger, "ListOperations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1390,6 +1651,7 @@ func (c *dataprocMetastoreRESTClient) ListServices(ctx context.Context, req *met
 		baseUrl.Path += fmt.Sprintf("/v1beta/%v/services", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -1406,7 +1668,8 @@ func (c *dataprocMetastoreRESTClient) ListServices(ctx context.Context, req *met
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -1417,23 +1680,12 @@ func (c *dataprocMetastoreRESTClient) ListServices(ctx context.Context, req *met
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListServices")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1469,10 +1721,17 @@ func (c *dataprocMetastoreRESTClient) GetService(ctx context.Context, req *metas
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetService[0:len((*c.CallOptions).GetService):len((*c.CallOptions).GetService)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &metastorepb.Service{}
@@ -1487,23 +1746,13 @@ func (c *dataprocMetastoreRESTClient) GetService(ctx context.Context, req *metas
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetService")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1530,6 +1779,7 @@ func (c *dataprocMetastoreRESTClient) CreateService(ctx context.Context, req *me
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v/services", req.GetParent())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetRequestId() != "" {
 		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
 	}
@@ -1538,9 +1788,11 @@ func (c *dataprocMetastoreRESTClient) CreateService(ctx context.Context, req *me
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1554,23 +1806,12 @@ func (c *dataprocMetastoreRESTClient) CreateService(ctx context.Context, req *me
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateService")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1602,23 +1843,26 @@ func (c *dataprocMetastoreRESTClient) UpdateService(ctx context.Context, req *me
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetService().GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetRequestId() != "" {
 		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
 	}
 	if req.GetUpdateMask() != nil {
-		updateMask, err := protojson.Marshal(req.GetUpdateMask())
+		field, err := protojson.Marshal(req.GetUpdateMask())
 		if err != nil {
 			return nil, err
 		}
-		params.Add("updateMask", string(updateMask))
+		params.Add("updateMask", string(field[1:len(field)-1]))
 	}
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "service.name", url.QueryEscape(req.GetService().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service.name", url.QueryEscape(req.GetService().GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1632,23 +1876,12 @@ func (c *dataprocMetastoreRESTClient) UpdateService(ctx context.Context, req *me
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateService")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1673,6 +1906,7 @@ func (c *dataprocMetastoreRESTClient) DeleteService(ctx context.Context, req *me
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetRequestId() != "" {
 		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
 	}
@@ -1680,9 +1914,11 @@ func (c *dataprocMetastoreRESTClient) DeleteService(ctx context.Context, req *me
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1696,23 +1932,12 @@ func (c *dataprocMetastoreRESTClient) DeleteService(ctx context.Context, req *me
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteService")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1750,6 +1975,7 @@ func (c *dataprocMetastoreRESTClient) ListMetadataImports(ctx context.Context, r
 		baseUrl.Path += fmt.Sprintf("/v1beta/%v/metadataImports", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -1766,7 +1992,8 @@ func (c *dataprocMetastoreRESTClient) ListMetadataImports(ctx context.Context, r
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -1777,23 +2004,12 @@ func (c *dataprocMetastoreRESTClient) ListMetadataImports(ctx context.Context, r
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListMetadataImports")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1829,10 +2045,17 @@ func (c *dataprocMetastoreRESTClient) GetMetadataImport(ctx context.Context, req
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetMetadataImport[0:len((*c.CallOptions).GetMetadataImport):len((*c.CallOptions).GetMetadataImport)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &metastorepb.MetadataImport{}
@@ -1847,23 +2070,13 @@ func (c *dataprocMetastoreRESTClient) GetMetadataImport(ctx context.Context, req
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetMetadataImport")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1890,6 +2103,7 @@ func (c *dataprocMetastoreRESTClient) CreateMetadataImport(ctx context.Context, 
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v/metadataImports", req.GetParent())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	params.Add("metadataImportId", fmt.Sprintf("%v", req.GetMetadataImportId()))
 	if req.GetRequestId() != "" {
 		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
@@ -1898,9 +2112,11 @@ func (c *dataprocMetastoreRESTClient) CreateMetadataImport(ctx context.Context, 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1914,23 +2130,12 @@ func (c *dataprocMetastoreRESTClient) CreateMetadataImport(ctx context.Context, 
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateMetadataImport")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1963,23 +2168,26 @@ func (c *dataprocMetastoreRESTClient) UpdateMetadataImport(ctx context.Context, 
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetMetadataImport().GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetRequestId() != "" {
 		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
 	}
 	if req.GetUpdateMask() != nil {
-		updateMask, err := protojson.Marshal(req.GetUpdateMask())
+		field, err := protojson.Marshal(req.GetUpdateMask())
 		if err != nil {
 			return nil, err
 		}
-		params.Add("updateMask", string(updateMask))
+		params.Add("updateMask", string(field[1:len(field)-1]))
 	}
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "metadata_import.name", url.QueryEscape(req.GetMetadataImport().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "metadata_import.name", url.QueryEscape(req.GetMetadataImport().GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1993,23 +2201,12 @@ func (c *dataprocMetastoreRESTClient) UpdateMetadataImport(ctx context.Context, 
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateMetadataImport")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2039,10 +2236,17 @@ func (c *dataprocMetastoreRESTClient) ExportMetadata(ctx context.Context, req *m
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v:exportMetadata", req.GetService())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -2056,23 +2260,12 @@ func (c *dataprocMetastoreRESTClient) ExportMetadata(ctx context.Context, req *m
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "ExportMetadata")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2102,10 +2295,17 @@ func (c *dataprocMetastoreRESTClient) RestoreService(ctx context.Context, req *m
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v:restore", req.GetService())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -2119,23 +2319,12 @@ func (c *dataprocMetastoreRESTClient) RestoreService(ctx context.Context, req *m
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "RestoreService")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2173,6 +2362,7 @@ func (c *dataprocMetastoreRESTClient) ListBackups(ctx context.Context, req *meta
 		baseUrl.Path += fmt.Sprintf("/v1beta/%v/backups", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -2189,7 +2379,8 @@ func (c *dataprocMetastoreRESTClient) ListBackups(ctx context.Context, req *meta
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -2200,23 +2391,12 @@ func (c *dataprocMetastoreRESTClient) ListBackups(ctx context.Context, req *meta
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListBackups")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -2252,10 +2432,17 @@ func (c *dataprocMetastoreRESTClient) GetBackup(ctx context.Context, req *metast
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetBackup[0:len((*c.CallOptions).GetBackup):len((*c.CallOptions).GetBackup)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &metastorepb.Backup{}
@@ -2270,23 +2457,13 @@ func (c *dataprocMetastoreRESTClient) GetBackup(ctx context.Context, req *metast
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetBackup")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2313,6 +2490,7 @@ func (c *dataprocMetastoreRESTClient) CreateBackup(ctx context.Context, req *met
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v/backups", req.GetParent())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	params.Add("backupId", fmt.Sprintf("%v", req.GetBackupId()))
 	if req.GetRequestId() != "" {
 		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
@@ -2321,9 +2499,11 @@ func (c *dataprocMetastoreRESTClient) CreateBackup(ctx context.Context, req *met
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -2337,23 +2517,12 @@ func (c *dataprocMetastoreRESTClient) CreateBackup(ctx context.Context, req *met
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateBackup")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2378,6 +2547,7 @@ func (c *dataprocMetastoreRESTClient) DeleteBackup(ctx context.Context, req *met
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetRequestId() != "" {
 		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
 	}
@@ -2385,9 +2555,11 @@ func (c *dataprocMetastoreRESTClient) DeleteBackup(ctx context.Context, req *met
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -2401,23 +2573,12 @@ func (c *dataprocMetastoreRESTClient) DeleteBackup(ctx context.Context, req *met
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteBackup")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2433,6 +2594,242 @@ func (c *dataprocMetastoreRESTClient) DeleteBackup(ctx context.Context, req *met
 	}, nil
 }
 
+// RemoveIamPolicy removes the attached IAM policies for a resource
+func (c *dataprocMetastoreRESTClient) RemoveIamPolicy(ctx context.Context, req *metastorepb.RemoveIamPolicyRequest, opts ...gax.CallOption) (*metastorepb.RemoveIamPolicyResponse, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta/%v:removeIamPolicy", req.GetResource())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).RemoveIamPolicy[0:len((*c.CallOptions).RemoveIamPolicy):len((*c.CallOptions).RemoveIamPolicy)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &metastorepb.RemoveIamPolicyResponse{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "RemoveIamPolicy")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// QueryMetadata query DPMS metadata.
+func (c *dataprocMetastoreRESTClient) QueryMetadata(ctx context.Context, req *metastorepb.QueryMetadataRequest, opts ...gax.CallOption) (*QueryMetadataOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta/%v:queryMetadata", req.GetService())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "QueryMetadata")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1beta/%s", resp.GetName())
+	return &QueryMetadataOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// MoveTableToDatabase move a table to another database.
+func (c *dataprocMetastoreRESTClient) MoveTableToDatabase(ctx context.Context, req *metastorepb.MoveTableToDatabaseRequest, opts ...gax.CallOption) (*MoveTableToDatabaseOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta/%v:moveTableToDatabase", req.GetService())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "MoveTableToDatabase")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1beta/%s", resp.GetName())
+	return &MoveTableToDatabaseOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// AlterMetadataResourceLocation alter metadata resource location. The metadata resource can be a database,
+// table, or partition. This functionality only updates the parent directory
+// for the respective metadata resource and does not transfer any existing
+// data to the new location.
+func (c *dataprocMetastoreRESTClient) AlterMetadataResourceLocation(ctx context.Context, req *metastorepb.AlterMetadataResourceLocationRequest, opts ...gax.CallOption) (*AlterMetadataResourceLocationOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta/%v:alterLocation", req.GetService())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "service", url.QueryEscape(req.GetService()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "AlterMetadataResourceLocation")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1beta/%s", resp.GetName())
+	return &AlterMetadataResourceLocationOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
 // GetLocation gets information about a location.
 func (c *dataprocMetastoreRESTClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
 	baseUrl, err := url.Parse(c.endpoint)
@@ -2441,10 +2838,17 @@ func (c *dataprocMetastoreRESTClient) GetLocation(ctx context.Context, req *loca
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &locationpb.Location{}
@@ -2459,23 +2863,13 @@ func (c *dataprocMetastoreRESTClient) GetLocation(ctx context.Context, req *loca
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetLocation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2508,6 +2902,7 @@ func (c *dataprocMetastoreRESTClient) ListLocations(ctx context.Context, req *lo
 		baseUrl.Path += fmt.Sprintf("/v1beta/%v/locations", req.GetName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -2521,7 +2916,8 @@ func (c *dataprocMetastoreRESTClient) ListLocations(ctx context.Context, req *lo
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -2532,23 +2928,12 @@ func (c *dataprocMetastoreRESTClient) ListLocations(ctx context.Context, req *lo
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListLocations")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -2586,6 +2971,7 @@ func (c *dataprocMetastoreRESTClient) GetIamPolicy(ctx context.Context, req *iam
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v:getIamPolicy", req.GetResource())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetOptions().GetRequestedPolicyVersion() != 0 {
 		params.Add("options.requestedPolicyVersion", fmt.Sprintf("%v", req.GetOptions().GetRequestedPolicyVersion()))
 	}
@@ -2593,9 +2979,11 @@ func (c *dataprocMetastoreRESTClient) GetIamPolicy(ctx context.Context, req *iam
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.Policy{}
@@ -2610,23 +2998,13 @@ func (c *dataprocMetastoreRESTClient) GetIamPolicy(ctx context.Context, req *iam
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetIamPolicy")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2655,10 +3033,17 @@ func (c *dataprocMetastoreRESTClient) SetIamPolicy(ctx context.Context, req *iam
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v:setIamPolicy", req.GetResource())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.Policy{}
@@ -2673,23 +3058,13 @@ func (c *dataprocMetastoreRESTClient) SetIamPolicy(ctx context.Context, req *iam
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SetIamPolicy")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2720,10 +3095,17 @@ func (c *dataprocMetastoreRESTClient) TestIamPermissions(ctx context.Context, re
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v:testIamPermissions", req.GetResource())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.TestIamPermissionsResponse{}
@@ -2738,23 +3120,13 @@ func (c *dataprocMetastoreRESTClient) TestIamPermissions(ctx context.Context, re
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "TestIamPermissions")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2765,6 +3137,47 @@ func (c *dataprocMetastoreRESTClient) TestIamPermissions(ctx context.Context, re
 	return resp, nil
 }
 
+// CancelOperation is a utility method from google.longrunning.Operations.
+func (c *dataprocMetastoreRESTClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta/%v:cancel", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CancelOperation")
+		return err
+	}, opts...)
+}
+
 // DeleteOperation is a utility method from google.longrunning.Operations.
 func (c *dataprocMetastoreRESTClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
 	baseUrl, err := url.Parse(c.endpoint)
@@ -2773,10 +3186,17 @@ func (c *dataprocMetastoreRESTClient) DeleteOperation(ctx context.Context, req *
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -2788,15 +3208,8 @@ func (c *dataprocMetastoreRESTClient) DeleteOperation(ctx context.Context, req *
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteOperation")
+		return err
 	}, opts...)
 }
 
@@ -2808,10 +3221,17 @@ func (c *dataprocMetastoreRESTClient) GetOperation(ctx context.Context, req *lon
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
@@ -2826,23 +3246,13 @@ func (c *dataprocMetastoreRESTClient) GetOperation(ctx context.Context, req *lon
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetOperation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2875,6 +3285,7 @@ func (c *dataprocMetastoreRESTClient) ListOperations(ctx context.Context, req *l
 		baseUrl.Path += fmt.Sprintf("/v1beta/%v/operations", req.GetName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -2888,7 +3299,8 @@ func (c *dataprocMetastoreRESTClient) ListOperations(ctx context.Context, req *l
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -2899,23 +3311,12 @@ func (c *dataprocMetastoreRESTClient) ListOperations(ctx context.Context, req *l
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListOperations")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -2943,10 +3344,22 @@ func (c *dataprocMetastoreRESTClient) ListOperations(ctx context.Context, req *l
 	return it
 }
 
-// CreateBackupOperation manages a long-running operation from CreateBackup.
-type CreateBackupOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
+// AlterMetadataResourceLocationOperation returns a new AlterMetadataResourceLocationOperation from a given name.
+// The name must be that of a previously created AlterMetadataResourceLocationOperation, possibly from a different process.
+func (c *dataprocMetastoreGRPCClient) AlterMetadataResourceLocationOperation(name string) *AlterMetadataResourceLocationOperation {
+	return &AlterMetadataResourceLocationOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+	}
+}
+
+// AlterMetadataResourceLocationOperation returns a new AlterMetadataResourceLocationOperation from a given name.
+// The name must be that of a previously created AlterMetadataResourceLocationOperation, possibly from a different process.
+func (c *dataprocMetastoreRESTClient) AlterMetadataResourceLocationOperation(name string) *AlterMetadataResourceLocationOperation {
+	override := fmt.Sprintf("/v1beta/%s", name)
+	return &AlterMetadataResourceLocationOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
+	}
 }
 
 // CreateBackupOperation returns a new CreateBackupOperation from a given name.
@@ -2967,70 +3380,6 @@ func (c *dataprocMetastoreRESTClient) CreateBackupOperation(name string) *Create
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *CreateBackupOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*metastorepb.Backup, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.Backup
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *CreateBackupOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*metastorepb.Backup, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.Backup
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *CreateBackupOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *CreateBackupOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *CreateBackupOperation) Name() string {
-	return op.lro.Name()
-}
-
-// CreateMetadataImportOperation manages a long-running operation from CreateMetadataImport.
-type CreateMetadataImportOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // CreateMetadataImportOperation returns a new CreateMetadataImportOperation from a given name.
 // The name must be that of a previously created CreateMetadataImportOperation, possibly from a different process.
 func (c *dataprocMetastoreGRPCClient) CreateMetadataImportOperation(name string) *CreateMetadataImportOperation {
@@ -3047,70 +3396,6 @@ func (c *dataprocMetastoreRESTClient) CreateMetadataImportOperation(name string)
 		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 		pollPath: override,
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *CreateMetadataImportOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*metastorepb.MetadataImport, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.MetadataImport
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *CreateMetadataImportOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*metastorepb.MetadataImport, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.MetadataImport
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *CreateMetadataImportOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *CreateMetadataImportOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *CreateMetadataImportOperation) Name() string {
-	return op.lro.Name()
-}
-
-// CreateServiceOperation manages a long-running operation from CreateService.
-type CreateServiceOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
 }
 
 // CreateServiceOperation returns a new CreateServiceOperation from a given name.
@@ -3131,70 +3416,6 @@ func (c *dataprocMetastoreRESTClient) CreateServiceOperation(name string) *Creat
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *CreateServiceOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*metastorepb.Service, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.Service
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *CreateServiceOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*metastorepb.Service, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.Service
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *CreateServiceOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *CreateServiceOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *CreateServiceOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteBackupOperation manages a long-running operation from DeleteBackup.
-type DeleteBackupOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // DeleteBackupOperation returns a new DeleteBackupOperation from a given name.
 // The name must be that of a previously created DeleteBackupOperation, possibly from a different process.
 func (c *dataprocMetastoreGRPCClient) DeleteBackupOperation(name string) *DeleteBackupOperation {
@@ -3211,59 +3432,6 @@ func (c *dataprocMetastoreRESTClient) DeleteBackupOperation(name string) *Delete
 		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 		pollPath: override,
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteBackupOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteBackupOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteBackupOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteBackupOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteBackupOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteServiceOperation manages a long-running operation from DeleteService.
-type DeleteServiceOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
 }
 
 // DeleteServiceOperation returns a new DeleteServiceOperation from a given name.
@@ -3284,59 +3452,6 @@ func (c *dataprocMetastoreRESTClient) DeleteServiceOperation(name string) *Delet
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteServiceOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteServiceOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteServiceOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteServiceOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteServiceOperation) Name() string {
-	return op.lro.Name()
-}
-
-// ExportMetadataOperation manages a long-running operation from ExportMetadata.
-type ExportMetadataOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // ExportMetadataOperation returns a new ExportMetadataOperation from a given name.
 // The name must be that of a previously created ExportMetadataOperation, possibly from a different process.
 func (c *dataprocMetastoreGRPCClient) ExportMetadataOperation(name string) *ExportMetadataOperation {
@@ -3355,68 +3470,40 @@ func (c *dataprocMetastoreRESTClient) ExportMetadataOperation(name string) *Expo
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *ExportMetadataOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*metastorepb.MetadataExport, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.MetadataExport
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
+// MoveTableToDatabaseOperation returns a new MoveTableToDatabaseOperation from a given name.
+// The name must be that of a previously created MoveTableToDatabaseOperation, possibly from a different process.
+func (c *dataprocMetastoreGRPCClient) MoveTableToDatabaseOperation(name string) *MoveTableToDatabaseOperation {
+	return &MoveTableToDatabaseOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 	}
-	return &resp, nil
 }
 
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *ExportMetadataOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*metastorepb.MetadataExport, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.MetadataExport
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
+// MoveTableToDatabaseOperation returns a new MoveTableToDatabaseOperation from a given name.
+// The name must be that of a previously created MoveTableToDatabaseOperation, possibly from a different process.
+func (c *dataprocMetastoreRESTClient) MoveTableToDatabaseOperation(name string) *MoveTableToDatabaseOperation {
+	override := fmt.Sprintf("/v1beta/%s", name)
+	return &MoveTableToDatabaseOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	if !op.Done() {
-		return nil, nil
+}
+
+// QueryMetadataOperation returns a new QueryMetadataOperation from a given name.
+// The name must be that of a previously created QueryMetadataOperation, possibly from a different process.
+func (c *dataprocMetastoreGRPCClient) QueryMetadataOperation(name string) *QueryMetadataOperation {
+	return &QueryMetadataOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 	}
-	return &resp, nil
 }
 
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *ExportMetadataOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
+// QueryMetadataOperation returns a new QueryMetadataOperation from a given name.
+// The name must be that of a previously created QueryMetadataOperation, possibly from a different process.
+func (c *dataprocMetastoreRESTClient) QueryMetadataOperation(name string) *QueryMetadataOperation {
+	override := fmt.Sprintf("/v1beta/%s", name)
+	return &QueryMetadataOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *ExportMetadataOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *ExportMetadataOperation) Name() string {
-	return op.lro.Name()
-}
-
-// RestoreServiceOperation manages a long-running operation from RestoreService.
-type RestoreServiceOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
 }
 
 // RestoreServiceOperation returns a new RestoreServiceOperation from a given name.
@@ -3437,70 +3524,6 @@ func (c *dataprocMetastoreRESTClient) RestoreServiceOperation(name string) *Rest
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *RestoreServiceOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*metastorepb.Restore, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.Restore
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *RestoreServiceOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*metastorepb.Restore, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.Restore
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *RestoreServiceOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *RestoreServiceOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *RestoreServiceOperation) Name() string {
-	return op.lro.Name()
-}
-
-// UpdateMetadataImportOperation manages a long-running operation from UpdateMetadataImport.
-type UpdateMetadataImportOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // UpdateMetadataImportOperation returns a new UpdateMetadataImportOperation from a given name.
 // The name must be that of a previously created UpdateMetadataImportOperation, possibly from a different process.
 func (c *dataprocMetastoreGRPCClient) UpdateMetadataImportOperation(name string) *UpdateMetadataImportOperation {
@@ -3519,70 +3542,6 @@ func (c *dataprocMetastoreRESTClient) UpdateMetadataImportOperation(name string)
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *UpdateMetadataImportOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*metastorepb.MetadataImport, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.MetadataImport
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *UpdateMetadataImportOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*metastorepb.MetadataImport, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.MetadataImport
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *UpdateMetadataImportOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *UpdateMetadataImportOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *UpdateMetadataImportOperation) Name() string {
-	return op.lro.Name()
-}
-
-// UpdateServiceOperation manages a long-running operation from UpdateService.
-type UpdateServiceOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // UpdateServiceOperation returns a new UpdateServiceOperation from a given name.
 // The name must be that of a previously created UpdateServiceOperation, possibly from a different process.
 func (c *dataprocMetastoreGRPCClient) UpdateServiceOperation(name string) *UpdateServiceOperation {
@@ -3599,297 +3558,4 @@ func (c *dataprocMetastoreRESTClient) UpdateServiceOperation(name string) *Updat
 		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 		pollPath: override,
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *UpdateServiceOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*metastorepb.Service, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.Service
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *UpdateServiceOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*metastorepb.Service, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp metastorepb.Service
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *UpdateServiceOperation) Metadata() (*metastorepb.OperationMetadata, error) {
-	var meta metastorepb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *UpdateServiceOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *UpdateServiceOperation) Name() string {
-	return op.lro.Name()
-}
-
-// BackupIterator manages a stream of *metastorepb.Backup.
-type BackupIterator struct {
-	items    []*metastorepb.Backup
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*metastorepb.Backup, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *BackupIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *BackupIterator) Next() (*metastorepb.Backup, error) {
-	var item *metastorepb.Backup
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *BackupIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *BackupIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// LocationIterator manages a stream of *locationpb.Location.
-type LocationIterator struct {
-	items    []*locationpb.Location
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*locationpb.Location, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *LocationIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *LocationIterator) Next() (*locationpb.Location, error) {
-	var item *locationpb.Location
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *LocationIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *LocationIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// MetadataImportIterator manages a stream of *metastorepb.MetadataImport.
-type MetadataImportIterator struct {
-	items    []*metastorepb.MetadataImport
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*metastorepb.MetadataImport, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *MetadataImportIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *MetadataImportIterator) Next() (*metastorepb.MetadataImport, error) {
-	var item *metastorepb.MetadataImport
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *MetadataImportIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *MetadataImportIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// OperationIterator manages a stream of *longrunningpb.Operation.
-type OperationIterator struct {
-	items    []*longrunningpb.Operation
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*longrunningpb.Operation, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *OperationIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *OperationIterator) Next() (*longrunningpb.Operation, error) {
-	var item *longrunningpb.Operation
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *OperationIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *OperationIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ServiceIterator manages a stream of *metastorepb.Service.
-type ServiceIterator struct {
-	items    []*metastorepb.Service
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*metastorepb.Service, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ServiceIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ServiceIterator) Next() (*metastorepb.Service, error) {
-	var item *metastorepb.Service
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ServiceIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ServiceIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
 }

@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,9 +17,12 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -29,9 +32,10 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
+	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -49,10 +53,13 @@ type DashboardsCallOptions struct {
 func defaultDashboardsGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("monitoring.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("monitoring.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("monitoring.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://monitoring.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -60,8 +67,11 @@ func defaultDashboardsGRPCClientOptions() []option.ClientOption {
 
 func defaultDashboardsCallOptions() *DashboardsCallOptions {
 	return &DashboardsCallOptions{
-		CreateDashboard: []gax.CallOption{},
+		CreateDashboard: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
+		},
 		ListDashboards: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -74,6 +84,7 @@ func defaultDashboardsCallOptions() *DashboardsCallOptions {
 			}),
 		},
 		GetDashboard: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -85,8 +96,50 @@ func defaultDashboardsCallOptions() *DashboardsCallOptions {
 				})
 			}),
 		},
-		DeleteDashboard: []gax.CallOption{},
-		UpdateDashboard: []gax.CallOption{},
+		DeleteDashboard: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
+		},
+		UpdateDashboard: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
+		},
+	}
+}
+
+func defaultDashboardsRESTCallOptions() *DashboardsCallOptions {
+	return &DashboardsCallOptions{
+		CreateDashboard: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
+		},
+		ListDashboards: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusServiceUnavailable,
+					http.StatusInternalServerError)
+			}),
+		},
+		GetDashboard: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    1000 * time.Millisecond,
+					Max:        10000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusServiceUnavailable,
+					http.StatusInternalServerError)
+			}),
+		},
+		DeleteDashboard: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
+		},
+		UpdateDashboard: []gax.CallOption{
+			gax.WithTimeout(30000 * time.Millisecond),
+		},
 	}
 }
 
@@ -138,8 +191,12 @@ func (c *DashboardsClient) Connection() *grpc.ClientConn {
 	return c.internalClient.Connection()
 }
 
-// CreateDashboard creates a new custom dashboard. For examples on how you can use this API to create dashboards, see Managing dashboards by API (at https://cloud.google.com/monitoring/dashboards/api-dashboard).
-// This method requires the monitoring.dashboards.create permission on the specified project. For more information about permissions, see Cloud Identity and Access Management (at https://cloud.google.com/iam).
+// CreateDashboard creates a new custom dashboard. For examples on how you can use this API to
+// create dashboards, see Managing dashboards by
+// API (at https://cloud.google.com/monitoring/dashboards/api-dashboard). This
+// method requires the monitoring.dashboards.create permission on the
+// specified project. For more information about permissions, see Cloud
+// Identity and Access Management (at https://cloud.google.com/iam).
 func (c *DashboardsClient) CreateDashboard(ctx context.Context, req *dashboardpb.CreateDashboardRequest, opts ...gax.CallOption) (*dashboardpb.Dashboard, error) {
 	return c.internalClient.CreateDashboard(ctx, req, opts...)
 }
@@ -187,9 +244,6 @@ type dashboardsGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing DashboardsClient
 	CallOptions **DashboardsCallOptions
 
@@ -197,7 +251,9 @@ type dashboardsGRPCClient struct {
 	dashboardsClient dashboardpb.DashboardsServiceClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewDashboardsClient creates a new dashboards service client based on gRPC.
@@ -215,11 +271,6 @@ func NewDashboardsClient(ctx context.Context, opts ...option.ClientOption) (*Das
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -228,9 +279,9 @@ func NewDashboardsClient(ctx context.Context, opts ...option.ClientOption) (*Das
 
 	c := &dashboardsGRPCClient{
 		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
 		dashboardsClient: dashboardpb.NewDashboardsServiceClient(connPool),
 		CallOptions:      &client.CallOptions,
+		logger:           internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -251,9 +302,11 @@ func (c *dashboardsGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *dashboardsGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -262,20 +315,93 @@ func (c *dashboardsGRPCClient) Close() error {
 	return c.connPool.Close()
 }
 
-func (c *dashboardsGRPCClient) CreateDashboard(ctx context.Context, req *dashboardpb.CreateDashboardRequest, opts ...gax.CallOption) (*dashboardpb.Dashboard, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 30000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+// Methods, except Close, may be called concurrently. However, fields must not be modified concurrently with method calls.
+type dashboardsRESTClient struct {
+	// The http endpoint to connect to.
+	endpoint string
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	// The http client.
+	httpClient *http.Client
+
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
+
+	// Points back to the CallOptions field of the containing DashboardsClient
+	CallOptions **DashboardsCallOptions
+
+	logger *slog.Logger
+}
+
+// NewDashboardsRESTClient creates a new dashboards service rest client.
+//
+// Manages Stackdriver dashboards. A dashboard is an arrangement of data display
+// widgets in a specific layout.
+func NewDashboardsRESTClient(ctx context.Context, opts ...option.ClientOption) (*DashboardsClient, error) {
+	clientOpts := append(defaultDashboardsRESTClientOptions(), opts...)
+	httpClient, endpoint, err := httptransport.NewClient(ctx, clientOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	callOpts := defaultDashboardsRESTCallOptions()
+	c := &dashboardsRESTClient{
+		endpoint:    endpoint,
+		httpClient:  httpClient,
+		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
+	}
+	c.setGoogleClientInfo()
+
+	return &DashboardsClient{internalClient: c, CallOptions: callOpts}, nil
+}
+
+func defaultDashboardsRESTClientOptions() []option.ClientOption {
+	return []option.ClientOption{
+		internaloption.WithDefaultEndpoint("https://monitoring.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://monitoring.UNIVERSE_DOMAIN"),
+		internaloption.WithDefaultMTLSEndpoint("https://monitoring.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
+		internaloption.WithDefaultAudience("https://monitoring.googleapis.com/"),
+		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
+	}
+}
+
+// setGoogleClientInfo sets the name and version of the application in
+// the `x-goog-api-client` header passed on each request. Intended for
+// use by Google-written clients.
+func (c *dashboardsRESTClient) setGoogleClientInfo(keyval ...string) {
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
+	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
+}
+
+// Close closes the connection to the API service. The user should invoke this when
+// the client is no longer required.
+func (c *dashboardsRESTClient) Close() error {
+	// Replace httpClient with nil to force cleanup.
+	c.httpClient = nil
+	return nil
+}
+
+// Connection returns a connection to the API service.
+//
+// Deprecated: This method always returns nil.
+func (c *dashboardsRESTClient) Connection() *grpc.ClientConn {
+	return nil
+}
+func (c *dashboardsGRPCClient) CreateDashboard(ctx context.Context, req *dashboardpb.CreateDashboardRequest, opts ...gax.CallOption) (*dashboardpb.Dashboard, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateDashboard[0:len((*c.CallOptions).CreateDashboard):len((*c.CallOptions).CreateDashboard)], opts...)
 	var resp *dashboardpb.Dashboard
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dashboardsClient.CreateDashboard(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dashboardsClient.CreateDashboard, req, settings.GRPC, c.logger, "CreateDashboard")
 		return err
 	}, opts...)
 	if err != nil {
@@ -285,9 +411,10 @@ func (c *dashboardsGRPCClient) CreateDashboard(ctx context.Context, req *dashboa
 }
 
 func (c *dashboardsGRPCClient) ListDashboards(ctx context.Context, req *dashboardpb.ListDashboardsRequest, opts ...gax.CallOption) *DashboardIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListDashboards[0:len((*c.CallOptions).ListDashboards):len((*c.CallOptions).ListDashboards)], opts...)
 	it := &DashboardIterator{}
 	req = proto.Clone(req).(*dashboardpb.ListDashboardsRequest)
@@ -303,7 +430,7 @@ func (c *dashboardsGRPCClient) ListDashboards(ctx context.Context, req *dashboar
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.dashboardsClient.ListDashboards(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.dashboardsClient.ListDashboards, req, settings.GRPC, c.logger, "ListDashboards")
 			return err
 		}, opts...)
 		if err != nil {
@@ -330,19 +457,15 @@ func (c *dashboardsGRPCClient) ListDashboards(ctx context.Context, req *dashboar
 }
 
 func (c *dashboardsGRPCClient) GetDashboard(ctx context.Context, req *dashboardpb.GetDashboardRequest, opts ...gax.CallOption) (*dashboardpb.Dashboard, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 30000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetDashboard[0:len((*c.CallOptions).GetDashboard):len((*c.CallOptions).GetDashboard)], opts...)
 	var resp *dashboardpb.Dashboard
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dashboardsClient.GetDashboard(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dashboardsClient.GetDashboard, req, settings.GRPC, c.logger, "GetDashboard")
 		return err
 	}, opts...)
 	if err != nil {
@@ -352,37 +475,29 @@ func (c *dashboardsGRPCClient) GetDashboard(ctx context.Context, req *dashboardp
 }
 
 func (c *dashboardsGRPCClient) DeleteDashboard(ctx context.Context, req *dashboardpb.DeleteDashboardRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 30000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteDashboard[0:len((*c.CallOptions).DeleteDashboard):len((*c.CallOptions).DeleteDashboard)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.dashboardsClient.DeleteDashboard(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.dashboardsClient.DeleteDashboard, req, settings.GRPC, c.logger, "DeleteDashboard")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *dashboardsGRPCClient) UpdateDashboard(ctx context.Context, req *dashboardpb.UpdateDashboardRequest, opts ...gax.CallOption) (*dashboardpb.Dashboard, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 30000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "dashboard.name", url.QueryEscape(req.GetDashboard().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "dashboard.name", url.QueryEscape(req.GetDashboard().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateDashboard[0:len((*c.CallOptions).UpdateDashboard):len((*c.CallOptions).UpdateDashboard)], opts...)
 	var resp *dashboardpb.Dashboard
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.dashboardsClient.UpdateDashboard(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.dashboardsClient.UpdateDashboard, req, settings.GRPC, c.logger, "UpdateDashboard")
 		return err
 	}, opts...)
 	if err != nil {
@@ -391,49 +506,306 @@ func (c *dashboardsGRPCClient) UpdateDashboard(ctx context.Context, req *dashboa
 	return resp, nil
 }
 
-// DashboardIterator manages a stream of *dashboardpb.Dashboard.
-type DashboardIterator struct {
-	items    []*dashboardpb.Dashboard
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*dashboardpb.Dashboard, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *DashboardIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *DashboardIterator) Next() (*dashboardpb.Dashboard, error) {
-	var item *dashboardpb.Dashboard
-	if err := it.nextFunc(); err != nil {
-		return item, err
+// CreateDashboard creates a new custom dashboard. For examples on how you can use this API to
+// create dashboards, see Managing dashboards by
+// API (at https://cloud.google.com/monitoring/dashboards/api-dashboard). This
+// method requires the monitoring.dashboards.create permission on the
+// specified project. For more information about permissions, see Cloud
+// Identity and Access Management (at https://cloud.google.com/iam).
+func (c *dashboardsRESTClient) CreateDashboard(ctx context.Context, req *dashboardpb.CreateDashboardRequest, opts ...gax.CallOption) (*dashboardpb.Dashboard, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetDashboard()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
 	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/dashboards", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetValidateOnly() {
+		params.Add("validateOnly", fmt.Sprintf("%v", req.GetValidateOnly()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).CreateDashboard[0:len((*c.CallOptions).CreateDashboard):len((*c.CallOptions).CreateDashboard)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &dashboardpb.Dashboard{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateDashboard")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
 }
 
-func (it *DashboardIterator) bufLen() int {
-	return len(it.items)
+// ListDashboards lists the existing dashboards.
+//
+// This method requires the monitoring.dashboards.list permission
+// on the specified project. For more information, see
+// Cloud Identity and Access Management (at https://cloud.google.com/iam).
+func (c *dashboardsRESTClient) ListDashboards(ctx context.Context, req *dashboardpb.ListDashboardsRequest, opts ...gax.CallOption) *DashboardIterator {
+	it := &DashboardIterator{}
+	req = proto.Clone(req).(*dashboardpb.ListDashboardsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*dashboardpb.Dashboard, string, error) {
+		resp := &dashboardpb.ListDashboardsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/dashboards", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListDashboards")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetDashboards(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
 }
 
-func (it *DashboardIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
+// GetDashboard fetches a specific dashboard.
+//
+// This method requires the monitoring.dashboards.get permission
+// on the specified dashboard. For more information, see
+// Cloud Identity and Access Management (at https://cloud.google.com/iam).
+func (c *dashboardsRESTClient) GetDashboard(ctx context.Context, req *dashboardpb.GetDashboardRequest, opts ...gax.CallOption) (*dashboardpb.Dashboard, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetDashboard[0:len((*c.CallOptions).GetDashboard):len((*c.CallOptions).GetDashboard)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &dashboardpb.Dashboard{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetDashboard")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// DeleteDashboard deletes an existing custom dashboard.
+//
+// This method requires the monitoring.dashboards.delete permission
+// on the specified dashboard. For more information, see
+// Cloud Identity and Access Management (at https://cloud.google.com/iam).
+func (c *dashboardsRESTClient) DeleteDashboard(ctx context.Context, req *dashboardpb.DeleteDashboardRequest, opts ...gax.CallOption) error {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteDashboard")
+		return err
+	}, opts...)
+}
+
+// UpdateDashboard replaces an existing custom dashboard with a new definition.
+//
+// This method requires the monitoring.dashboards.update permission
+// on the specified dashboard. For more information, see
+// Cloud Identity and Access Management (at https://cloud.google.com/iam).
+func (c *dashboardsRESTClient) UpdateDashboard(ctx context.Context, req *dashboardpb.UpdateDashboardRequest, opts ...gax.CallOption) (*dashboardpb.Dashboard, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetDashboard()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetDashboard().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetValidateOnly() {
+		params.Add("validateOnly", fmt.Sprintf("%v", req.GetValidateOnly()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "dashboard.name", url.QueryEscape(req.GetDashboard().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateDashboard[0:len((*c.CallOptions).UpdateDashboard):len((*c.CallOptions).UpdateDashboard)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &dashboardpb.Dashboard{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateDashboard")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
 }

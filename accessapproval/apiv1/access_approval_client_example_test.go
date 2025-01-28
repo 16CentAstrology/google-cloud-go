@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,60 +41,21 @@ func ExampleNewClient() {
 	_ = c
 }
 
-func ExampleClient_ListApprovalRequests() {
+func ExampleNewRESTClient() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
 	// - It may require correct/in-range values for request initialization.
 	// - It may require specifying regional endpoints when creating the service client as shown in:
 	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := accessapproval.NewClient(ctx)
+	c, err := accessapproval.NewRESTClient(ctx)
 	if err != nil {
 		// TODO: Handle error.
 	}
 	defer c.Close()
 
-	req := &accessapprovalpb.ListApprovalRequestsMessage{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#ListApprovalRequestsMessage.
-	}
-	it := c.ListApprovalRequests(ctx, req)
-	for {
-		resp, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			// TODO: Handle error.
-		}
-		// TODO: Use resp.
-		_ = resp
-	}
-}
-
-func ExampleClient_GetApprovalRequest() {
-	ctx := context.Background()
-	// This snippet has been automatically generated and should be regarded as a code template only.
-	// It will require modifications to work:
-	// - It may require correct/in-range values for request initialization.
-	// - It may require specifying regional endpoints when creating the service client as shown in:
-	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := accessapproval.NewClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	defer c.Close()
-
-	req := &accessapprovalpb.GetApprovalRequestMessage{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#GetApprovalRequestMessage.
-	}
-	resp, err := c.GetApprovalRequest(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
+	// TODO: Use client.
+	_ = c
 }
 
 func ExampleClient_ApproveApprovalRequest() {
@@ -122,6 +83,29 @@ func ExampleClient_ApproveApprovalRequest() {
 	_ = resp
 }
 
+func ExampleClient_DeleteAccessApprovalSettings() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := accessapproval.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &accessapprovalpb.DeleteAccessApprovalSettingsMessage{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#DeleteAccessApprovalSettingsMessage.
+	}
+	err = c.DeleteAccessApprovalSettings(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+}
+
 func ExampleClient_DismissApprovalRequest() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
@@ -147,7 +131,7 @@ func ExampleClient_DismissApprovalRequest() {
 	_ = resp
 }
 
-func ExampleClient_InvalidateApprovalRequest() {
+func ExampleClient_GetAccessApprovalServiceAccount() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -160,11 +144,11 @@ func ExampleClient_InvalidateApprovalRequest() {
 	}
 	defer c.Close()
 
-	req := &accessapprovalpb.InvalidateApprovalRequestMessage{
+	req := &accessapprovalpb.GetAccessApprovalServiceAccountMessage{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#InvalidateApprovalRequestMessage.
+		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#GetAccessApprovalServiceAccountMessage.
 	}
-	resp, err := c.InvalidateApprovalRequest(ctx, req)
+	resp, err := c.GetAccessApprovalServiceAccount(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -197,6 +181,93 @@ func ExampleClient_GetAccessApprovalSettings() {
 	_ = resp
 }
 
+func ExampleClient_GetApprovalRequest() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := accessapproval.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &accessapprovalpb.GetApprovalRequestMessage{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#GetApprovalRequestMessage.
+	}
+	resp, err := c.GetApprovalRequest(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_InvalidateApprovalRequest() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := accessapproval.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &accessapprovalpb.InvalidateApprovalRequestMessage{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#InvalidateApprovalRequestMessage.
+	}
+	resp, err := c.InvalidateApprovalRequest(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_ListApprovalRequests() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := accessapproval.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &accessapprovalpb.ListApprovalRequestsMessage{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#ListApprovalRequestsMessage.
+	}
+	it := c.ListApprovalRequests(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*accessapprovalpb.ListApprovalRequestsResponse)
+	}
+}
+
 func ExampleClient_UpdateAccessApprovalSettings() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
@@ -215,54 +286,6 @@ func ExampleClient_UpdateAccessApprovalSettings() {
 		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#UpdateAccessApprovalSettingsMessage.
 	}
 	resp, err := c.UpdateAccessApprovalSettings(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
-}
-
-func ExampleClient_DeleteAccessApprovalSettings() {
-	ctx := context.Background()
-	// This snippet has been automatically generated and should be regarded as a code template only.
-	// It will require modifications to work:
-	// - It may require correct/in-range values for request initialization.
-	// - It may require specifying regional endpoints when creating the service client as shown in:
-	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := accessapproval.NewClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	defer c.Close()
-
-	req := &accessapprovalpb.DeleteAccessApprovalSettingsMessage{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#DeleteAccessApprovalSettingsMessage.
-	}
-	err = c.DeleteAccessApprovalSettings(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-}
-
-func ExampleClient_GetAccessApprovalServiceAccount() {
-	ctx := context.Background()
-	// This snippet has been automatically generated and should be regarded as a code template only.
-	// It will require modifications to work:
-	// - It may require correct/in-range values for request initialization.
-	// - It may require specifying regional endpoints when creating the service client as shown in:
-	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := accessapproval.NewClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	defer c.Close()
-
-	req := &accessapprovalpb.GetAccessApprovalServiceAccountMessage{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/accessapproval/apiv1/accessapprovalpb#GetAccessApprovalServiceAccountMessage.
-	}
-	resp, err := c.GetAccessApprovalServiceAccount(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
