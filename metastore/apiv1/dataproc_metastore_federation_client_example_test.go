@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,12 +19,12 @@ package metastore_test
 import (
 	"context"
 
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	metastore "cloud.google.com/go/metastore/apiv1"
 	metastorepb "cloud.google.com/go/metastore/apiv1/metastorepb"
 	"google.golang.org/api/iterator"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 )
 
 func ExampleNewDataprocMetastoreFederationClient() {
@@ -44,60 +44,21 @@ func ExampleNewDataprocMetastoreFederationClient() {
 	_ = c
 }
 
-func ExampleDataprocMetastoreFederationClient_ListFederations() {
+func ExampleNewDataprocMetastoreFederationRESTClient() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
 	// - It may require correct/in-range values for request initialization.
 	// - It may require specifying regional endpoints when creating the service client as shown in:
 	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := metastore.NewDataprocMetastoreFederationClient(ctx)
+	c, err := metastore.NewDataprocMetastoreFederationRESTClient(ctx)
 	if err != nil {
 		// TODO: Handle error.
 	}
 	defer c.Close()
 
-	req := &metastorepb.ListFederationsRequest{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/metastore/apiv1/metastorepb#ListFederationsRequest.
-	}
-	it := c.ListFederations(ctx, req)
-	for {
-		resp, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			// TODO: Handle error.
-		}
-		// TODO: Use resp.
-		_ = resp
-	}
-}
-
-func ExampleDataprocMetastoreFederationClient_GetFederation() {
-	ctx := context.Background()
-	// This snippet has been automatically generated and should be regarded as a code template only.
-	// It will require modifications to work:
-	// - It may require correct/in-range values for request initialization.
-	// - It may require specifying regional endpoints when creating the service client as shown in:
-	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := metastore.NewDataprocMetastoreFederationClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	defer c.Close()
-
-	req := &metastorepb.GetFederationRequest{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/metastore/apiv1/metastorepb#GetFederationRequest.
-	}
-	resp, err := c.GetFederation(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
+	// TODO: Use client.
+	_ = c
 }
 
 func ExampleDataprocMetastoreFederationClient_CreateFederation() {
@@ -118,36 +79,6 @@ func ExampleDataprocMetastoreFederationClient_CreateFederation() {
 		// See https://pkg.go.dev/cloud.google.com/go/metastore/apiv1/metastorepb#CreateFederationRequest.
 	}
 	op, err := c.CreateFederation(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	resp, err := op.Wait(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
-}
-
-func ExampleDataprocMetastoreFederationClient_UpdateFederation() {
-	ctx := context.Background()
-	// This snippet has been automatically generated and should be regarded as a code template only.
-	// It will require modifications to work:
-	// - It may require correct/in-range values for request initialization.
-	// - It may require specifying regional endpoints when creating the service client as shown in:
-	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := metastore.NewDataprocMetastoreFederationClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	defer c.Close()
-
-	req := &metastorepb.UpdateFederationRequest{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/metastore/apiv1/metastorepb#UpdateFederationRequest.
-	}
-	op, err := c.UpdateFederation(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -186,6 +117,98 @@ func ExampleDataprocMetastoreFederationClient_DeleteFederation() {
 	if err != nil {
 		// TODO: Handle error.
 	}
+}
+
+func ExampleDataprocMetastoreFederationClient_GetFederation() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := metastore.NewDataprocMetastoreFederationClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &metastorepb.GetFederationRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/metastore/apiv1/metastorepb#GetFederationRequest.
+	}
+	resp, err := c.GetFederation(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleDataprocMetastoreFederationClient_ListFederations() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := metastore.NewDataprocMetastoreFederationClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &metastorepb.ListFederationsRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/metastore/apiv1/metastorepb#ListFederationsRequest.
+	}
+	it := c.ListFederations(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*metastorepb.ListFederationsResponse)
+	}
+}
+
+func ExampleDataprocMetastoreFederationClient_UpdateFederation() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := metastore.NewDataprocMetastoreFederationClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &metastorepb.UpdateFederationRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/metastore/apiv1/metastorepb#UpdateFederationRequest.
+	}
+	op, err := c.UpdateFederation(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
 }
 
 func ExampleDataprocMetastoreFederationClient_GetLocation() {
@@ -241,6 +264,12 @@ func ExampleDataprocMetastoreFederationClient_ListLocations() {
 		}
 		// TODO: Use resp.
 		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*locationpb.ListLocationsResponse)
 	}
 }
 
@@ -259,7 +288,7 @@ func ExampleDataprocMetastoreFederationClient_GetIamPolicy() {
 
 	req := &iampb.GetIamPolicyRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/iam/v1#GetIamPolicyRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/iam/apiv1/iampb#GetIamPolicyRequest.
 	}
 	resp, err := c.GetIamPolicy(ctx, req)
 	if err != nil {
@@ -284,7 +313,7 @@ func ExampleDataprocMetastoreFederationClient_SetIamPolicy() {
 
 	req := &iampb.SetIamPolicyRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/iam/v1#SetIamPolicyRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/iam/apiv1/iampb#SetIamPolicyRequest.
 	}
 	resp, err := c.SetIamPolicy(ctx, req)
 	if err != nil {
@@ -309,7 +338,7 @@ func ExampleDataprocMetastoreFederationClient_TestIamPermissions() {
 
 	req := &iampb.TestIamPermissionsRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/iam/v1#TestIamPermissionsRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/iam/apiv1/iampb#TestIamPermissionsRequest.
 	}
 	resp, err := c.TestIamPermissions(ctx, req)
 	if err != nil {
@@ -317,6 +346,29 @@ func ExampleDataprocMetastoreFederationClient_TestIamPermissions() {
 	}
 	// TODO: Use resp.
 	_ = resp
+}
+
+func ExampleDataprocMetastoreFederationClient_CancelOperation() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := metastore.NewDataprocMetastoreFederationClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &longrunningpb.CancelOperationRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/longrunning/autogen/longrunningpb#CancelOperationRequest.
+	}
+	err = c.CancelOperation(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
 }
 
 func ExampleDataprocMetastoreFederationClient_DeleteOperation() {
@@ -334,7 +386,7 @@ func ExampleDataprocMetastoreFederationClient_DeleteOperation() {
 
 	req := &longrunningpb.DeleteOperationRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/longrunning#DeleteOperationRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/longrunning/autogen/longrunningpb#DeleteOperationRequest.
 	}
 	err = c.DeleteOperation(ctx, req)
 	if err != nil {
@@ -357,7 +409,7 @@ func ExampleDataprocMetastoreFederationClient_GetOperation() {
 
 	req := &longrunningpb.GetOperationRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/longrunning#GetOperationRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/longrunning/autogen/longrunningpb#GetOperationRequest.
 	}
 	resp, err := c.GetOperation(ctx, req)
 	if err != nil {
@@ -382,7 +434,7 @@ func ExampleDataprocMetastoreFederationClient_ListOperations() {
 
 	req := &longrunningpb.ListOperationsRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/longrunning#ListOperationsRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/longrunning/autogen/longrunningpb#ListOperationsRequest.
 	}
 	it := c.ListOperations(ctx, req)
 	for {
@@ -395,5 +447,11 @@ func ExampleDataprocMetastoreFederationClient_ListOperations() {
 		}
 		// TODO: Use resp.
 		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*longrunningpb.ListOperationsResponse)
 	}
 }

@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -28,13 +28,11 @@ import (
 
 	dataqnapb "cloud.google.com/go/dataqna/apiv1alpha/dataqnapb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -48,10 +46,13 @@ type AutoSuggestionCallOptions struct {
 func defaultAutoSuggestionGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("dataqna.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("dataqna.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("dataqna.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://dataqna.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -59,13 +60,17 @@ func defaultAutoSuggestionGRPCClientOptions() []option.ClientOption {
 
 func defaultAutoSuggestionCallOptions() *AutoSuggestionCallOptions {
 	return &AutoSuggestionCallOptions{
-		SuggestQueries: []gax.CallOption{},
+		SuggestQueries: []gax.CallOption{
+			gax.WithTimeout(2000 * time.Millisecond),
+		},
 	}
 }
 
 func defaultAutoSuggestionRESTCallOptions() *AutoSuggestionCallOptions {
 	return &AutoSuggestionCallOptions{
-		SuggestQueries: []gax.CallOption{},
+		SuggestQueries: []gax.CallOption{
+			gax.WithTimeout(2000 * time.Millisecond),
+		},
 	}
 }
 
@@ -139,9 +144,6 @@ type autoSuggestionGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing AutoSuggestionClient
 	CallOptions **AutoSuggestionCallOptions
 
@@ -149,7 +151,9 @@ type autoSuggestionGRPCClient struct {
 	autoSuggestionClient dataqnapb.AutoSuggestionServiceClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewAutoSuggestionClient creates a new auto suggestion service client based on gRPC.
@@ -180,11 +184,6 @@ func NewAutoSuggestionClient(ctx context.Context, opts ...option.ClientOption) (
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -193,9 +192,9 @@ func NewAutoSuggestionClient(ctx context.Context, opts ...option.ClientOption) (
 
 	c := &autoSuggestionGRPCClient{
 		connPool:             connPool,
-		disableDeadlines:     disableDeadlines,
 		autoSuggestionClient: dataqnapb.NewAutoSuggestionServiceClient(connPool),
 		CallOptions:          &client.CallOptions,
+		logger:               internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -216,9 +215,11 @@ func (c *autoSuggestionGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *autoSuggestionGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -235,11 +236,13 @@ type autoSuggestionRESTClient struct {
 	// The http client.
 	httpClient *http.Client
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing AutoSuggestionClient
 	CallOptions **AutoSuggestionCallOptions
+
+	logger *slog.Logger
 }
 
 // NewAutoSuggestionRESTClient creates a new auto suggestion service rest client.
@@ -271,6 +274,7 @@ func NewAutoSuggestionRESTClient(ctx context.Context, opts ...option.ClientOptio
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -280,9 +284,12 @@ func NewAutoSuggestionRESTClient(ctx context.Context, opts ...option.ClientOptio
 func defaultAutoSuggestionRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://dataqna.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://dataqna.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://dataqna.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://dataqna.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -290,9 +297,11 @@ func defaultAutoSuggestionRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *autoSuggestionRESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -310,19 +319,15 @@ func (c *autoSuggestionRESTClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *autoSuggestionGRPCClient) SuggestQueries(ctx context.Context, req *dataqnapb.SuggestQueriesRequest, opts ...gax.CallOption) (*dataqnapb.SuggestQueriesResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 2000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).SuggestQueries[0:len((*c.CallOptions).SuggestQueries):len((*c.CallOptions).SuggestQueries)], opts...)
 	var resp *dataqnapb.SuggestQueriesResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.autoSuggestionClient.SuggestQueries(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.autoSuggestionClient.SuggestQueries, req, settings.GRPC, c.logger, "SuggestQueries")
 		return err
 	}, opts...)
 	if err != nil {
@@ -347,9 +352,11 @@ func (c *autoSuggestionRESTClient) SuggestQueries(ctx context.Context, req *data
 	baseUrl.Path += fmt.Sprintf("/v1alpha/%v:suggestQueries", req.GetParent())
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).SuggestQueries[0:len((*c.CallOptions).SuggestQueries):len((*c.CallOptions).SuggestQueries)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataqnapb.SuggestQueriesResponse{}
@@ -364,23 +371,13 @@ func (c *autoSuggestionRESTClient) SuggestQueries(ctx context.Context, req *data
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SuggestQueries")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil

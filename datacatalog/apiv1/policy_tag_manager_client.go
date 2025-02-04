@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,21 +17,26 @@
 package datacatalog
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
+	"net/http"
 	"net/url"
 	"time"
 
 	datacatalogpb "cloud.google.com/go/datacatalog/apiv1/datacatalogpb"
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	gax "github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
+	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -52,15 +57,22 @@ type PolicyTagManagerCallOptions struct {
 	GetIamPolicy       []gax.CallOption
 	SetIamPolicy       []gax.CallOption
 	TestIamPermissions []gax.CallOption
+	CancelOperation    []gax.CallOption
+	DeleteOperation    []gax.CallOption
+	GetOperation       []gax.CallOption
+	ListOperations     []gax.CallOption
 }
 
 func defaultPolicyTagManagerGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("datacatalog.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("datacatalog.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("datacatalog.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://datacatalog.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -68,19 +80,97 @@ func defaultPolicyTagManagerGRPCClientOptions() []option.ClientOption {
 
 func defaultPolicyTagManagerCallOptions() *PolicyTagManagerCallOptions {
 	return &PolicyTagManagerCallOptions{
-		CreateTaxonomy:     []gax.CallOption{},
-		DeleteTaxonomy:     []gax.CallOption{},
-		UpdateTaxonomy:     []gax.CallOption{},
-		ListTaxonomies:     []gax.CallOption{},
-		GetTaxonomy:        []gax.CallOption{},
-		CreatePolicyTag:    []gax.CallOption{},
-		DeletePolicyTag:    []gax.CallOption{},
-		UpdatePolicyTag:    []gax.CallOption{},
-		ListPolicyTags:     []gax.CallOption{},
-		GetPolicyTag:       []gax.CallOption{},
-		GetIamPolicy:       []gax.CallOption{},
-		SetIamPolicy:       []gax.CallOption{},
-		TestIamPermissions: []gax.CallOption{},
+		CreateTaxonomy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteTaxonomy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateTaxonomy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListTaxonomies: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetTaxonomy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreatePolicyTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeletePolicyTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdatePolicyTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListPolicyTags: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetPolicyTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		SetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		TestIamPermissions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CancelOperation: []gax.CallOption{},
+		DeleteOperation: []gax.CallOption{},
+		GetOperation:    []gax.CallOption{},
+		ListOperations:  []gax.CallOption{},
+	}
+}
+
+func defaultPolicyTagManagerRESTCallOptions() *PolicyTagManagerCallOptions {
+	return &PolicyTagManagerCallOptions{
+		CreateTaxonomy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteTaxonomy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateTaxonomy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListTaxonomies: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetTaxonomy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreatePolicyTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeletePolicyTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdatePolicyTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListPolicyTags: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetPolicyTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		SetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		TestIamPermissions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CancelOperation: []gax.CallOption{},
+		DeleteOperation: []gax.CallOption{},
+		GetOperation:    []gax.CallOption{},
+		ListOperations:  []gax.CallOption{},
 	}
 }
 
@@ -102,6 +192,10 @@ type internalPolicyTagManagerClient interface {
 	GetIamPolicy(context.Context, *iampb.GetIamPolicyRequest, ...gax.CallOption) (*iampb.Policy, error)
 	SetIamPolicy(context.Context, *iampb.SetIamPolicyRequest, ...gax.CallOption) (*iampb.Policy, error)
 	TestIamPermissions(context.Context, *iampb.TestIamPermissionsRequest, ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error)
+	CancelOperation(context.Context, *longrunningpb.CancelOperationRequest, ...gax.CallOption) error
+	DeleteOperation(context.Context, *longrunningpb.DeleteOperationRequest, ...gax.CallOption) error
+	GetOperation(context.Context, *longrunningpb.GetOperationRequest, ...gax.CallOption) (*longrunningpb.Operation, error)
+	ListOperations(context.Context, *longrunningpb.ListOperationsRequest, ...gax.CallOption) *OperationIterator
 }
 
 // PolicyTagManagerClient is a client for interacting with Google Cloud Data Catalog API.
@@ -224,6 +318,26 @@ func (c *PolicyTagManagerClient) TestIamPermissions(ctx context.Context, req *ia
 	return c.internalClient.TestIamPermissions(ctx, req, opts...)
 }
 
+// CancelOperation is a utility method from google.longrunning.Operations.
+func (c *PolicyTagManagerClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
+	return c.internalClient.CancelOperation(ctx, req, opts...)
+}
+
+// DeleteOperation is a utility method from google.longrunning.Operations.
+func (c *PolicyTagManagerClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
+	return c.internalClient.DeleteOperation(ctx, req, opts...)
+}
+
+// GetOperation is a utility method from google.longrunning.Operations.
+func (c *PolicyTagManagerClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
+	return c.internalClient.GetOperation(ctx, req, opts...)
+}
+
+// ListOperations is a utility method from google.longrunning.Operations.
+func (c *PolicyTagManagerClient) ListOperations(ctx context.Context, req *longrunningpb.ListOperationsRequest, opts ...gax.CallOption) *OperationIterator {
+	return c.internalClient.ListOperations(ctx, req, opts...)
+}
+
 // policyTagManagerGRPCClient is a client for interacting with Google Cloud Data Catalog API over gRPC transport.
 //
 // Methods, except Close, may be called concurrently. However, fields must not be modified concurrently with method calls.
@@ -231,17 +345,18 @@ type policyTagManagerGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing PolicyTagManagerClient
 	CallOptions **PolicyTagManagerCallOptions
 
 	// The gRPC API client.
 	policyTagManagerClient datacatalogpb.PolicyTagManagerClient
 
+	operationsClient longrunningpb.OperationsClient
+
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewPolicyTagManagerClient creates a new policy tag manager client based on gRPC.
@@ -263,11 +378,6 @@ func NewPolicyTagManagerClient(ctx context.Context, opts ...option.ClientOption)
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -276,9 +386,10 @@ func NewPolicyTagManagerClient(ctx context.Context, opts ...option.ClientOption)
 
 	c := &policyTagManagerGRPCClient{
 		connPool:               connPool,
-		disableDeadlines:       disableDeadlines,
 		policyTagManagerClient: datacatalogpb.NewPolicyTagManagerClient(connPool),
 		CallOptions:            &client.CallOptions,
+		logger:                 internaloption.GetLogger(opts),
+		operationsClient:       longrunningpb.NewOperationsClient(connPool),
 	}
 	c.setGoogleClientInfo()
 
@@ -299,9 +410,11 @@ func (c *policyTagManagerGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *policyTagManagerGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -310,20 +423,97 @@ func (c *policyTagManagerGRPCClient) Close() error {
 	return c.connPool.Close()
 }
 
-func (c *policyTagManagerGRPCClient) CreateTaxonomy(ctx context.Context, req *datacatalogpb.CreateTaxonomyRequest, opts ...gax.CallOption) (*datacatalogpb.Taxonomy, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+// Methods, except Close, may be called concurrently. However, fields must not be modified concurrently with method calls.
+type policyTagManagerRESTClient struct {
+	// The http endpoint to connect to.
+	endpoint string
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	// The http client.
+	httpClient *http.Client
+
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
+
+	// Points back to the CallOptions field of the containing PolicyTagManagerClient
+	CallOptions **PolicyTagManagerCallOptions
+
+	logger *slog.Logger
+}
+
+// NewPolicyTagManagerRESTClient creates a new policy tag manager rest client.
+//
+// Policy Tag Manager API service allows you to manage your policy tags and
+// taxonomies.
+//
+// Policy tags are used to tag BigQuery columns and apply additional access
+// control policies. A taxonomy is a hierarchical grouping of policy tags that
+// classify data along a common axis.
+func NewPolicyTagManagerRESTClient(ctx context.Context, opts ...option.ClientOption) (*PolicyTagManagerClient, error) {
+	clientOpts := append(defaultPolicyTagManagerRESTClientOptions(), opts...)
+	httpClient, endpoint, err := httptransport.NewClient(ctx, clientOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	callOpts := defaultPolicyTagManagerRESTCallOptions()
+	c := &policyTagManagerRESTClient{
+		endpoint:    endpoint,
+		httpClient:  httpClient,
+		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
+	}
+	c.setGoogleClientInfo()
+
+	return &PolicyTagManagerClient{internalClient: c, CallOptions: callOpts}, nil
+}
+
+func defaultPolicyTagManagerRESTClientOptions() []option.ClientOption {
+	return []option.ClientOption{
+		internaloption.WithDefaultEndpoint("https://datacatalog.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://datacatalog.UNIVERSE_DOMAIN"),
+		internaloption.WithDefaultMTLSEndpoint("https://datacatalog.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
+		internaloption.WithDefaultAudience("https://datacatalog.googleapis.com/"),
+		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
+	}
+}
+
+// setGoogleClientInfo sets the name and version of the application in
+// the `x-goog-api-client` header passed on each request. Intended for
+// use by Google-written clients.
+func (c *policyTagManagerRESTClient) setGoogleClientInfo(keyval ...string) {
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
+	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
+}
+
+// Close closes the connection to the API service. The user should invoke this when
+// the client is no longer required.
+func (c *policyTagManagerRESTClient) Close() error {
+	// Replace httpClient with nil to force cleanup.
+	c.httpClient = nil
+	return nil
+}
+
+// Connection returns a connection to the API service.
+//
+// Deprecated: This method always returns nil.
+func (c *policyTagManagerRESTClient) Connection() *grpc.ClientConn {
+	return nil
+}
+func (c *policyTagManagerGRPCClient) CreateTaxonomy(ctx context.Context, req *datacatalogpb.CreateTaxonomyRequest, opts ...gax.CallOption) (*datacatalogpb.Taxonomy, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateTaxonomy[0:len((*c.CallOptions).CreateTaxonomy):len((*c.CallOptions).CreateTaxonomy)], opts...)
 	var resp *datacatalogpb.Taxonomy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.CreateTaxonomy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.CreateTaxonomy, req, settings.GRPC, c.logger, "CreateTaxonomy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -333,37 +523,29 @@ func (c *policyTagManagerGRPCClient) CreateTaxonomy(ctx context.Context, req *da
 }
 
 func (c *policyTagManagerGRPCClient) DeleteTaxonomy(ctx context.Context, req *datacatalogpb.DeleteTaxonomyRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteTaxonomy[0:len((*c.CallOptions).DeleteTaxonomy):len((*c.CallOptions).DeleteTaxonomy)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.policyTagManagerClient.DeleteTaxonomy(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.policyTagManagerClient.DeleteTaxonomy, req, settings.GRPC, c.logger, "DeleteTaxonomy")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *policyTagManagerGRPCClient) UpdateTaxonomy(ctx context.Context, req *datacatalogpb.UpdateTaxonomyRequest, opts ...gax.CallOption) (*datacatalogpb.Taxonomy, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "taxonomy.name", url.QueryEscape(req.GetTaxonomy().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "taxonomy.name", url.QueryEscape(req.GetTaxonomy().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateTaxonomy[0:len((*c.CallOptions).UpdateTaxonomy):len((*c.CallOptions).UpdateTaxonomy)], opts...)
 	var resp *datacatalogpb.Taxonomy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.UpdateTaxonomy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.UpdateTaxonomy, req, settings.GRPC, c.logger, "UpdateTaxonomy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -373,9 +555,10 @@ func (c *policyTagManagerGRPCClient) UpdateTaxonomy(ctx context.Context, req *da
 }
 
 func (c *policyTagManagerGRPCClient) ListTaxonomies(ctx context.Context, req *datacatalogpb.ListTaxonomiesRequest, opts ...gax.CallOption) *TaxonomyIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListTaxonomies[0:len((*c.CallOptions).ListTaxonomies):len((*c.CallOptions).ListTaxonomies)], opts...)
 	it := &TaxonomyIterator{}
 	req = proto.Clone(req).(*datacatalogpb.ListTaxonomiesRequest)
@@ -391,7 +574,7 @@ func (c *policyTagManagerGRPCClient) ListTaxonomies(ctx context.Context, req *da
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.policyTagManagerClient.ListTaxonomies(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.policyTagManagerClient.ListTaxonomies, req, settings.GRPC, c.logger, "ListTaxonomies")
 			return err
 		}, opts...)
 		if err != nil {
@@ -418,19 +601,15 @@ func (c *policyTagManagerGRPCClient) ListTaxonomies(ctx context.Context, req *da
 }
 
 func (c *policyTagManagerGRPCClient) GetTaxonomy(ctx context.Context, req *datacatalogpb.GetTaxonomyRequest, opts ...gax.CallOption) (*datacatalogpb.Taxonomy, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetTaxonomy[0:len((*c.CallOptions).GetTaxonomy):len((*c.CallOptions).GetTaxonomy)], opts...)
 	var resp *datacatalogpb.Taxonomy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.GetTaxonomy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.GetTaxonomy, req, settings.GRPC, c.logger, "GetTaxonomy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -440,19 +619,15 @@ func (c *policyTagManagerGRPCClient) GetTaxonomy(ctx context.Context, req *datac
 }
 
 func (c *policyTagManagerGRPCClient) CreatePolicyTag(ctx context.Context, req *datacatalogpb.CreatePolicyTagRequest, opts ...gax.CallOption) (*datacatalogpb.PolicyTag, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreatePolicyTag[0:len((*c.CallOptions).CreatePolicyTag):len((*c.CallOptions).CreatePolicyTag)], opts...)
 	var resp *datacatalogpb.PolicyTag
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.CreatePolicyTag(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.CreatePolicyTag, req, settings.GRPC, c.logger, "CreatePolicyTag")
 		return err
 	}, opts...)
 	if err != nil {
@@ -462,37 +637,29 @@ func (c *policyTagManagerGRPCClient) CreatePolicyTag(ctx context.Context, req *d
 }
 
 func (c *policyTagManagerGRPCClient) DeletePolicyTag(ctx context.Context, req *datacatalogpb.DeletePolicyTagRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeletePolicyTag[0:len((*c.CallOptions).DeletePolicyTag):len((*c.CallOptions).DeletePolicyTag)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.policyTagManagerClient.DeletePolicyTag(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.policyTagManagerClient.DeletePolicyTag, req, settings.GRPC, c.logger, "DeletePolicyTag")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *policyTagManagerGRPCClient) UpdatePolicyTag(ctx context.Context, req *datacatalogpb.UpdatePolicyTagRequest, opts ...gax.CallOption) (*datacatalogpb.PolicyTag, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "policy_tag.name", url.QueryEscape(req.GetPolicyTag().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "policy_tag.name", url.QueryEscape(req.GetPolicyTag().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdatePolicyTag[0:len((*c.CallOptions).UpdatePolicyTag):len((*c.CallOptions).UpdatePolicyTag)], opts...)
 	var resp *datacatalogpb.PolicyTag
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.UpdatePolicyTag(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.UpdatePolicyTag, req, settings.GRPC, c.logger, "UpdatePolicyTag")
 		return err
 	}, opts...)
 	if err != nil {
@@ -502,9 +669,10 @@ func (c *policyTagManagerGRPCClient) UpdatePolicyTag(ctx context.Context, req *d
 }
 
 func (c *policyTagManagerGRPCClient) ListPolicyTags(ctx context.Context, req *datacatalogpb.ListPolicyTagsRequest, opts ...gax.CallOption) *PolicyTagIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListPolicyTags[0:len((*c.CallOptions).ListPolicyTags):len((*c.CallOptions).ListPolicyTags)], opts...)
 	it := &PolicyTagIterator{}
 	req = proto.Clone(req).(*datacatalogpb.ListPolicyTagsRequest)
@@ -520,7 +688,7 @@ func (c *policyTagManagerGRPCClient) ListPolicyTags(ctx context.Context, req *da
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.policyTagManagerClient.ListPolicyTags(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.policyTagManagerClient.ListPolicyTags, req, settings.GRPC, c.logger, "ListPolicyTags")
 			return err
 		}, opts...)
 		if err != nil {
@@ -547,19 +715,15 @@ func (c *policyTagManagerGRPCClient) ListPolicyTags(ctx context.Context, req *da
 }
 
 func (c *policyTagManagerGRPCClient) GetPolicyTag(ctx context.Context, req *datacatalogpb.GetPolicyTagRequest, opts ...gax.CallOption) (*datacatalogpb.PolicyTag, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetPolicyTag[0:len((*c.CallOptions).GetPolicyTag):len((*c.CallOptions).GetPolicyTag)], opts...)
 	var resp *datacatalogpb.PolicyTag
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.GetPolicyTag(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.GetPolicyTag, req, settings.GRPC, c.logger, "GetPolicyTag")
 		return err
 	}, opts...)
 	if err != nil {
@@ -569,19 +733,15 @@ func (c *policyTagManagerGRPCClient) GetPolicyTag(ctx context.Context, req *data
 }
 
 func (c *policyTagManagerGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.GetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.GetIamPolicy, req, settings.GRPC, c.logger, "GetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -591,19 +751,15 @@ func (c *policyTagManagerGRPCClient) GetIamPolicy(ctx context.Context, req *iamp
 }
 
 func (c *policyTagManagerGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.SetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.SetIamPolicy, req, settings.GRPC, c.logger, "SetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -613,19 +769,15 @@ func (c *policyTagManagerGRPCClient) SetIamPolicy(ctx context.Context, req *iamp
 }
 
 func (c *policyTagManagerGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	var resp *iampb.TestIamPermissionsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.policyTagManagerClient.TestIamPermissions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.policyTagManagerClient.TestIamPermissions, req, settings.GRPC, c.logger, "TestIamPermissions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -634,96 +786,984 @@ func (c *policyTagManagerGRPCClient) TestIamPermissions(ctx context.Context, req
 	return resp, nil
 }
 
-// PolicyTagIterator manages a stream of *datacatalogpb.PolicyTag.
-type PolicyTagIterator struct {
-	items    []*datacatalogpb.PolicyTag
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
+func (c *policyTagManagerGRPCClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*datacatalogpb.PolicyTag, nextPageToken string, err error)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).CancelOperation[0:len((*c.CallOptions).CancelOperation):len((*c.CallOptions).CancelOperation)], opts...)
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		_, err = executeRPC(ctx, c.operationsClient.CancelOperation, req, settings.GRPC, c.logger, "CancelOperation")
+		return err
+	}, opts...)
+	return err
 }
 
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *PolicyTagIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
+func (c *policyTagManagerGRPCClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).DeleteOperation[0:len((*c.CallOptions).DeleteOperation):len((*c.CallOptions).DeleteOperation)], opts...)
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		_, err = executeRPC(ctx, c.operationsClient.DeleteOperation, req, settings.GRPC, c.logger, "DeleteOperation")
+		return err
+	}, opts...)
+	return err
 }
 
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *PolicyTagIterator) Next() (*datacatalogpb.PolicyTag, error) {
-	var item *datacatalogpb.PolicyTag
-	if err := it.nextFunc(); err != nil {
-		return item, err
+func (c *policyTagManagerGRPCClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.operationsClient.GetOperation, req, settings.GRPC, c.logger, "GetOperation")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
 	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
+	return resp, nil
 }
 
-func (it *PolicyTagIterator) bufLen() int {
-	return len(it.items)
-}
+func (c *policyTagManagerGRPCClient) ListOperations(ctx context.Context, req *longrunningpb.ListOperationsRequest, opts ...gax.CallOption) *OperationIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-func (it *PolicyTagIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).ListOperations[0:len((*c.CallOptions).ListOperations):len((*c.CallOptions).ListOperations)], opts...)
+	it := &OperationIterator{}
+	req = proto.Clone(req).(*longrunningpb.ListOperationsRequest)
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*longrunningpb.Operation, string, error) {
+		resp := &longrunningpb.ListOperationsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			var err error
+			resp, err = executeRPC(ctx, c.operationsClient.ListOperations, req, settings.GRPC, c.logger, "ListOperations")
+			return err
+		}, opts...)
+		if err != nil {
+			return nil, "", err
+		}
 
-// TaxonomyIterator manages a stream of *datacatalogpb.Taxonomy.
-type TaxonomyIterator struct {
-	items    []*datacatalogpb.Taxonomy
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*datacatalogpb.Taxonomy, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *TaxonomyIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *TaxonomyIterator) Next() (*datacatalogpb.Taxonomy, error) {
-	var item *datacatalogpb.Taxonomy
-	if err := it.nextFunc(); err != nil {
-		return item, err
+		it.Response = resp
+		return resp.GetOperations(), resp.GetNextPageToken(), nil
 	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
 }
 
-func (it *TaxonomyIterator) bufLen() int {
-	return len(it.items)
+// CreateTaxonomy creates a taxonomy in a specified project.
+//
+// The taxonomy is initially empty, that is, it doesn’t contain policy tags.
+func (c *policyTagManagerRESTClient) CreateTaxonomy(ctx context.Context, req *datacatalogpb.CreateTaxonomyRequest, opts ...gax.CallOption) (*datacatalogpb.Taxonomy, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetTaxonomy()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/taxonomies", req.GetParent())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).CreateTaxonomy[0:len((*c.CallOptions).CreateTaxonomy):len((*c.CallOptions).CreateTaxonomy)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &datacatalogpb.Taxonomy{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateTaxonomy")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
 }
 
-func (it *TaxonomyIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
+// DeleteTaxonomy deletes a taxonomy, including all policy tags in this
+// taxonomy, their associated policies, and the policy tags references from
+// BigQuery columns.
+func (c *policyTagManagerRESTClient) DeleteTaxonomy(ctx context.Context, req *datacatalogpb.DeleteTaxonomyRequest, opts ...gax.CallOption) error {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteTaxonomy")
+		return err
+	}, opts...)
+}
+
+// UpdateTaxonomy updates a taxonomy, including its display name,
+// description, and activated policy types.
+func (c *policyTagManagerRESTClient) UpdateTaxonomy(ctx context.Context, req *datacatalogpb.UpdateTaxonomyRequest, opts ...gax.CallOption) (*datacatalogpb.Taxonomy, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetTaxonomy()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetTaxonomy().GetName())
+
+	params := url.Values{}
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "taxonomy.name", url.QueryEscape(req.GetTaxonomy().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateTaxonomy[0:len((*c.CallOptions).UpdateTaxonomy):len((*c.CallOptions).UpdateTaxonomy)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &datacatalogpb.Taxonomy{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateTaxonomy")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListTaxonomies lists all taxonomies in a project in a particular location that you
+// have a permission to view.
+func (c *policyTagManagerRESTClient) ListTaxonomies(ctx context.Context, req *datacatalogpb.ListTaxonomiesRequest, opts ...gax.CallOption) *TaxonomyIterator {
+	it := &TaxonomyIterator{}
+	req = proto.Clone(req).(*datacatalogpb.ListTaxonomiesRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*datacatalogpb.Taxonomy, string, error) {
+		resp := &datacatalogpb.ListTaxonomiesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/taxonomies", req.GetParent())
+
+		params := url.Values{}
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListTaxonomies")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetTaxonomies(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetTaxonomy gets a taxonomy.
+func (c *policyTagManagerRESTClient) GetTaxonomy(ctx context.Context, req *datacatalogpb.GetTaxonomyRequest, opts ...gax.CallOption) (*datacatalogpb.Taxonomy, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetTaxonomy[0:len((*c.CallOptions).GetTaxonomy):len((*c.CallOptions).GetTaxonomy)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &datacatalogpb.Taxonomy{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetTaxonomy")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// CreatePolicyTag creates a policy tag in a taxonomy.
+func (c *policyTagManagerRESTClient) CreatePolicyTag(ctx context.Context, req *datacatalogpb.CreatePolicyTagRequest, opts ...gax.CallOption) (*datacatalogpb.PolicyTag, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetPolicyTag()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/policyTags", req.GetParent())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).CreatePolicyTag[0:len((*c.CallOptions).CreatePolicyTag):len((*c.CallOptions).CreatePolicyTag)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &datacatalogpb.PolicyTag{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreatePolicyTag")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// DeletePolicyTag deletes a policy tag together with the following:
+//
+//	All of its descendant policy tags, if any
+//
+//	Policies associated with the policy tag and its descendants
+//
+//	References from BigQuery table schema of the policy tag and its
+//	descendants
+func (c *policyTagManagerRESTClient) DeletePolicyTag(ctx context.Context, req *datacatalogpb.DeletePolicyTagRequest, opts ...gax.CallOption) error {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeletePolicyTag")
+		return err
+	}, opts...)
+}
+
+// UpdatePolicyTag updates a policy tag, including its display
+// name, description, and parent policy tag.
+func (c *policyTagManagerRESTClient) UpdatePolicyTag(ctx context.Context, req *datacatalogpb.UpdatePolicyTagRequest, opts ...gax.CallOption) (*datacatalogpb.PolicyTag, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetPolicyTag()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetPolicyTag().GetName())
+
+	params := url.Values{}
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "policy_tag.name", url.QueryEscape(req.GetPolicyTag().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdatePolicyTag[0:len((*c.CallOptions).UpdatePolicyTag):len((*c.CallOptions).UpdatePolicyTag)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &datacatalogpb.PolicyTag{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdatePolicyTag")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListPolicyTags lists all policy tags in a taxonomy.
+func (c *policyTagManagerRESTClient) ListPolicyTags(ctx context.Context, req *datacatalogpb.ListPolicyTagsRequest, opts ...gax.CallOption) *PolicyTagIterator {
+	it := &PolicyTagIterator{}
+	req = proto.Clone(req).(*datacatalogpb.ListPolicyTagsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*datacatalogpb.PolicyTag, string, error) {
+		resp := &datacatalogpb.ListPolicyTagsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/policyTags", req.GetParent())
+
+		params := url.Values{}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListPolicyTags")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetPolicyTags(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetPolicyTag gets a policy tag.
+func (c *policyTagManagerRESTClient) GetPolicyTag(ctx context.Context, req *datacatalogpb.GetPolicyTagRequest, opts ...gax.CallOption) (*datacatalogpb.PolicyTag, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetPolicyTag[0:len((*c.CallOptions).GetPolicyTag):len((*c.CallOptions).GetPolicyTag)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &datacatalogpb.PolicyTag{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetPolicyTag")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// GetIamPolicy gets the IAM policy for a policy tag or a taxonomy.
+func (c *policyTagManagerRESTClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v:getIamPolicy", req.GetResource())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &iampb.Policy{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "GetIamPolicy")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// SetIamPolicy sets the IAM policy for a policy tag or a taxonomy.
+func (c *policyTagManagerRESTClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v:setIamPolicy", req.GetResource())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &iampb.Policy{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SetIamPolicy")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// TestIamPermissions returns your permissions on a specified policy tag or
+// taxonomy.
+func (c *policyTagManagerRESTClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v:testIamPermissions", req.GetResource())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &iampb.TestIamPermissionsResponse{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "TestIamPermissions")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// CancelOperation is a utility method from google.longrunning.Operations.
+func (c *policyTagManagerRESTClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v:cancel", req.GetName())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "CancelOperation")
+		return err
+	}, opts...)
+}
+
+// DeleteOperation is a utility method from google.longrunning.Operations.
+func (c *policyTagManagerRESTClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteOperation")
+		return err
+	}, opts...)
+}
+
+// GetOperation is a utility method from google.longrunning.Operations.
+func (c *policyTagManagerRESTClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetOperation")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListOperations is a utility method from google.longrunning.Operations.
+func (c *policyTagManagerRESTClient) ListOperations(ctx context.Context, req *longrunningpb.ListOperationsRequest, opts ...gax.CallOption) *OperationIterator {
+	it := &OperationIterator{}
+	req = proto.Clone(req).(*longrunningpb.ListOperationsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*longrunningpb.Operation, string, error) {
+		resp := &longrunningpb.ListOperationsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/operations", req.GetName())
+
+		params := url.Values{}
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListOperations")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetOperations(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
 }

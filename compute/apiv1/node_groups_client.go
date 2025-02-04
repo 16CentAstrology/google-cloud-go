@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,21 +20,20 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
 	"sort"
+	"time"
 
 	computepb "cloud.google.com/go/compute/apiv1/computepb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -43,36 +42,106 @@ var newNodeGroupsClientHook clientHook
 
 // NodeGroupsCallOptions contains the retry settings for each method of NodeGroupsClient.
 type NodeGroupsCallOptions struct {
-	AddNodes           []gax.CallOption
-	AggregatedList     []gax.CallOption
-	Delete             []gax.CallOption
-	DeleteNodes        []gax.CallOption
-	Get                []gax.CallOption
-	GetIamPolicy       []gax.CallOption
-	Insert             []gax.CallOption
-	List               []gax.CallOption
-	ListNodes          []gax.CallOption
-	Patch              []gax.CallOption
-	SetIamPolicy       []gax.CallOption
-	SetNodeTemplate    []gax.CallOption
-	TestIamPermissions []gax.CallOption
+	AddNodes                 []gax.CallOption
+	AggregatedList           []gax.CallOption
+	Delete                   []gax.CallOption
+	DeleteNodes              []gax.CallOption
+	Get                      []gax.CallOption
+	GetIamPolicy             []gax.CallOption
+	Insert                   []gax.CallOption
+	List                     []gax.CallOption
+	ListNodes                []gax.CallOption
+	Patch                    []gax.CallOption
+	PerformMaintenance       []gax.CallOption
+	SetIamPolicy             []gax.CallOption
+	SetNodeTemplate          []gax.CallOption
+	SimulateMaintenanceEvent []gax.CallOption
+	TestIamPermissions       []gax.CallOption
 }
 
 func defaultNodeGroupsRESTCallOptions() *NodeGroupsCallOptions {
 	return &NodeGroupsCallOptions{
-		AddNodes:           []gax.CallOption{},
-		AggregatedList:     []gax.CallOption{},
-		Delete:             []gax.CallOption{},
-		DeleteNodes:        []gax.CallOption{},
-		Get:                []gax.CallOption{},
-		GetIamPolicy:       []gax.CallOption{},
-		Insert:             []gax.CallOption{},
-		List:               []gax.CallOption{},
-		ListNodes:          []gax.CallOption{},
-		Patch:              []gax.CallOption{},
-		SetIamPolicy:       []gax.CallOption{},
-		SetNodeTemplate:    []gax.CallOption{},
-		TestIamPermissions: []gax.CallOption{},
+		AddNodes: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		AggregatedList: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    100 * time.Millisecond,
+					Max:        60000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusGatewayTimeout,
+					http.StatusServiceUnavailable)
+			}),
+		},
+		Delete: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		DeleteNodes: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		Get: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    100 * time.Millisecond,
+					Max:        60000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusGatewayTimeout,
+					http.StatusServiceUnavailable)
+			}),
+		},
+		GetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    100 * time.Millisecond,
+					Max:        60000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusGatewayTimeout,
+					http.StatusServiceUnavailable)
+			}),
+		},
+		Insert: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		List: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+			gax.WithRetry(func() gax.Retryer {
+				return gax.OnHTTPCodes(gax.Backoff{
+					Initial:    100 * time.Millisecond,
+					Max:        60000 * time.Millisecond,
+					Multiplier: 1.30,
+				},
+					http.StatusGatewayTimeout,
+					http.StatusServiceUnavailable)
+			}),
+		},
+		ListNodes: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		Patch: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		PerformMaintenance: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		SetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		SetNodeTemplate: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		SimulateMaintenanceEvent: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
+		TestIamPermissions: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
+		},
 	}
 }
 
@@ -91,8 +160,10 @@ type internalNodeGroupsClient interface {
 	List(context.Context, *computepb.ListNodeGroupsRequest, ...gax.CallOption) *NodeGroupIterator
 	ListNodes(context.Context, *computepb.ListNodesNodeGroupsRequest, ...gax.CallOption) *NodeGroupNodeIterator
 	Patch(context.Context, *computepb.PatchNodeGroupRequest, ...gax.CallOption) (*Operation, error)
+	PerformMaintenance(context.Context, *computepb.PerformMaintenanceNodeGroupRequest, ...gax.CallOption) (*Operation, error)
 	SetIamPolicy(context.Context, *computepb.SetIamPolicyNodeGroupRequest, ...gax.CallOption) (*computepb.Policy, error)
 	SetNodeTemplate(context.Context, *computepb.SetNodeTemplateNodeGroupRequest, ...gax.CallOption) (*Operation, error)
+	SimulateMaintenanceEvent(context.Context, *computepb.SimulateMaintenanceEventNodeGroupRequest, ...gax.CallOption) (*Operation, error)
 	TestIamPermissions(context.Context, *computepb.TestIamPermissionsNodeGroupRequest, ...gax.CallOption) (*computepb.TestPermissionsResponse, error)
 }
 
@@ -136,7 +207,7 @@ func (c *NodeGroupsClient) AddNodes(ctx context.Context, req *computepb.AddNodes
 	return c.internalClient.AddNodes(ctx, req, opts...)
 }
 
-// AggregatedList retrieves an aggregated list of node groups. Note: use nodeGroups.listNodes for more details about each group.
+// AggregatedList retrieves an aggregated list of node groups. Note: use nodeGroups.listNodes for more details about each group. To prevent failure, Google recommends that you set the returnPartialSuccess parameter to true.
 func (c *NodeGroupsClient) AggregatedList(ctx context.Context, req *computepb.AggregatedListNodeGroupsRequest, opts ...gax.CallOption) *NodeGroupsScopedListPairIterator {
 	return c.internalClient.AggregatedList(ctx, req, opts...)
 }
@@ -181,6 +252,11 @@ func (c *NodeGroupsClient) Patch(ctx context.Context, req *computepb.PatchNodeGr
 	return c.internalClient.Patch(ctx, req, opts...)
 }
 
+// PerformMaintenance perform maintenance on a subset of nodes in the node group.
+func (c *NodeGroupsClient) PerformMaintenance(ctx context.Context, req *computepb.PerformMaintenanceNodeGroupRequest, opts ...gax.CallOption) (*Operation, error) {
+	return c.internalClient.PerformMaintenance(ctx, req, opts...)
+}
+
 // SetIamPolicy sets the access control policy on the specified resource. Replaces any existing policy.
 func (c *NodeGroupsClient) SetIamPolicy(ctx context.Context, req *computepb.SetIamPolicyNodeGroupRequest, opts ...gax.CallOption) (*computepb.Policy, error) {
 	return c.internalClient.SetIamPolicy(ctx, req, opts...)
@@ -189,6 +265,11 @@ func (c *NodeGroupsClient) SetIamPolicy(ctx context.Context, req *computepb.SetI
 // SetNodeTemplate updates the node template of the node group.
 func (c *NodeGroupsClient) SetNodeTemplate(ctx context.Context, req *computepb.SetNodeTemplateNodeGroupRequest, opts ...gax.CallOption) (*Operation, error) {
 	return c.internalClient.SetNodeTemplate(ctx, req, opts...)
+}
+
+// SimulateMaintenanceEvent simulates maintenance event on specified nodes from the node group.
+func (c *NodeGroupsClient) SimulateMaintenanceEvent(ctx context.Context, req *computepb.SimulateMaintenanceEventNodeGroupRequest, opts ...gax.CallOption) (*Operation, error) {
+	return c.internalClient.SimulateMaintenanceEvent(ctx, req, opts...)
 }
 
 // TestIamPermissions returns permissions that a caller has on the specified resource.
@@ -207,11 +288,13 @@ type nodeGroupsRESTClient struct {
 	// operationClient is used to call the operation-specific management service.
 	operationClient *ZoneOperationsClient
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing NodeGroupsClient
 	CallOptions **NodeGroupsCallOptions
+
+	logger *slog.Logger
 }
 
 // NewNodeGroupsRESTClient creates a new node groups rest client.
@@ -229,6 +312,7 @@ func NewNodeGroupsRESTClient(ctx context.Context, opts ...option.ClientOption) (
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -248,9 +332,12 @@ func NewNodeGroupsRESTClient(ctx context.Context, opts ...option.ClientOption) (
 func defaultNodeGroupsRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://compute.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://compute.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://compute.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://compute.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -258,9 +345,11 @@ func defaultNodeGroupsRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *nodeGroupsRESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -304,9 +393,11 @@ func (c *nodeGroupsRESTClient) AddNodes(ctx context.Context, req *computepb.AddN
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).AddNodes[0:len((*c.CallOptions).AddNodes):len((*c.CallOptions).AddNodes)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.Operation{}
@@ -321,23 +412,13 @@ func (c *nodeGroupsRESTClient) AddNodes(ctx context.Context, req *computepb.AddN
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "AddNodes")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -356,7 +437,7 @@ func (c *nodeGroupsRESTClient) AddNodes(ctx context.Context, req *computepb.AddN
 	return op, nil
 }
 
-// AggregatedList retrieves an aggregated list of node groups. Note: use nodeGroups.listNodes for more details about each group.
+// AggregatedList retrieves an aggregated list of node groups. Note: use nodeGroups.listNodes for more details about each group. To prevent failure, Google recommends that you set the returnPartialSuccess parameter to true.
 func (c *nodeGroupsRESTClient) AggregatedList(ctx context.Context, req *computepb.AggregatedListNodeGroupsRequest, opts ...gax.CallOption) *NodeGroupsScopedListPairIterator {
 	it := &NodeGroupsScopedListPairIterator{}
 	req = proto.Clone(req).(*computepb.AggregatedListNodeGroupsRequest)
@@ -367,7 +448,7 @@ func (c *nodeGroupsRESTClient) AggregatedList(ctx context.Context, req *computep
 			req.PageToken = proto.String(pageToken)
 		}
 		if pageSize > math.MaxInt32 {
-			req.MaxResults = proto.Uint32(math.MaxInt32)
+			req.MaxResults = proto.Uint32(uint32(math.MaxInt32))
 		} else if pageSize != 0 {
 			req.MaxResults = proto.Uint32(uint32(pageSize))
 		}
@@ -396,11 +477,15 @@ func (c *nodeGroupsRESTClient) AggregatedList(ctx context.Context, req *computep
 		if req != nil && req.ReturnPartialSuccess != nil {
 			params.Add("returnPartialSuccess", fmt.Sprintf("%v", req.GetReturnPartialSuccess()))
 		}
+		if req != nil && req.ServiceProjectNumber != nil {
+			params.Add("serviceProjectNumber", fmt.Sprintf("%v", req.GetServiceProjectNumber()))
+		}
 
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -411,23 +496,12 @@ func (c *nodeGroupsRESTClient) AggregatedList(ctx context.Context, req *computep
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "AggregatedList")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -478,9 +552,11 @@ func (c *nodeGroupsRESTClient) Delete(ctx context.Context, req *computepb.Delete
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).Delete[0:len((*c.CallOptions).Delete):len((*c.CallOptions).Delete)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.Operation{}
@@ -495,23 +571,13 @@ func (c *nodeGroupsRESTClient) Delete(ctx context.Context, req *computepb.Delete
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "Delete")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -553,9 +619,11 @@ func (c *nodeGroupsRESTClient) DeleteNodes(ctx context.Context, req *computepb.D
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteNodes[0:len((*c.CallOptions).DeleteNodes):len((*c.CallOptions).DeleteNodes)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.Operation{}
@@ -570,23 +638,13 @@ func (c *nodeGroupsRESTClient) DeleteNodes(ctx context.Context, req *computepb.D
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "DeleteNodes")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -614,9 +672,11 @@ func (c *nodeGroupsRESTClient) Get(ctx context.Context, req *computepb.GetNodeGr
 	baseUrl.Path += fmt.Sprintf("/compute/v1/projects/%v/zones/%v/nodeGroups/%v", req.GetProject(), req.GetZone(), req.GetNodeGroup())
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).Get[0:len((*c.CallOptions).Get):len((*c.CallOptions).Get)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.NodeGroup{}
@@ -631,23 +691,13 @@ func (c *nodeGroupsRESTClient) Get(ctx context.Context, req *computepb.GetNodeGr
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "Get")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -674,9 +724,11 @@ func (c *nodeGroupsRESTClient) GetIamPolicy(ctx context.Context, req *computepb.
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "resource", url.QueryEscape(req.GetResource()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.Policy{}
@@ -691,23 +743,13 @@ func (c *nodeGroupsRESTClient) GetIamPolicy(ctx context.Context, req *computepb.
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetIamPolicy")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -742,9 +784,11 @@ func (c *nodeGroupsRESTClient) Insert(ctx context.Context, req *computepb.Insert
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).Insert[0:len((*c.CallOptions).Insert):len((*c.CallOptions).Insert)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.Operation{}
@@ -759,23 +803,13 @@ func (c *nodeGroupsRESTClient) Insert(ctx context.Context, req *computepb.Insert
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "Insert")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -805,7 +839,7 @@ func (c *nodeGroupsRESTClient) List(ctx context.Context, req *computepb.ListNode
 			req.PageToken = proto.String(pageToken)
 		}
 		if pageSize > math.MaxInt32 {
-			req.MaxResults = proto.Uint32(math.MaxInt32)
+			req.MaxResults = proto.Uint32(uint32(math.MaxInt32))
 		} else if pageSize != 0 {
 			req.MaxResults = proto.Uint32(uint32(pageSize))
 		}
@@ -835,7 +869,8 @@ func (c *nodeGroupsRESTClient) List(ctx context.Context, req *computepb.ListNode
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -846,23 +881,12 @@ func (c *nodeGroupsRESTClient) List(ctx context.Context, req *computepb.ListNode
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "List")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -901,7 +925,7 @@ func (c *nodeGroupsRESTClient) ListNodes(ctx context.Context, req *computepb.Lis
 			req.PageToken = proto.String(pageToken)
 		}
 		if pageSize > math.MaxInt32 {
-			req.MaxResults = proto.Uint32(math.MaxInt32)
+			req.MaxResults = proto.Uint32(uint32(math.MaxInt32))
 		} else if pageSize != 0 {
 			req.MaxResults = proto.Uint32(uint32(pageSize))
 		}
@@ -931,7 +955,8 @@ func (c *nodeGroupsRESTClient) ListNodes(ctx context.Context, req *computepb.Lis
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -942,23 +967,12 @@ func (c *nodeGroupsRESTClient) ListNodes(ctx context.Context, req *computepb.Lis
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListNodes")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1009,9 +1023,11 @@ func (c *nodeGroupsRESTClient) Patch(ctx context.Context, req *computepb.PatchNo
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).Patch[0:len((*c.CallOptions).Patch):len((*c.CallOptions).Patch)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.Operation{}
@@ -1026,23 +1042,80 @@ func (c *nodeGroupsRESTClient) Patch(ctx context.Context, req *computepb.PatchNo
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "Patch")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	op := &Operation{
+		&zoneOperationsHandle{
+			c:       c.operationClient,
+			proto:   resp,
+			project: req.GetProject(),
+			zone:    req.GetZone(),
+		},
+	}
+	return op, nil
+}
+
+// PerformMaintenance perform maintenance on a subset of nodes in the node group.
+func (c *nodeGroupsRESTClient) PerformMaintenance(ctx context.Context, req *computepb.PerformMaintenanceNodeGroupRequest, opts ...gax.CallOption) (*Operation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true}
+	body := req.GetNodeGroupsPerformMaintenanceRequestResource()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/compute/v1/projects/%v/zones/%v/nodeGroups/%v/performMaintenance", req.GetProject(), req.GetZone(), req.GetNodeGroup())
+
+	params := url.Values{}
+	if req != nil && req.RequestId != nil {
+		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).PerformMaintenance[0:len((*c.CallOptions).PerformMaintenance):len((*c.CallOptions).PerformMaintenance)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &computepb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "PerformMaintenance")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
 		}
 
 		return nil
@@ -1077,9 +1150,11 @@ func (c *nodeGroupsRESTClient) SetIamPolicy(ctx context.Context, req *computepb.
 	baseUrl.Path += fmt.Sprintf("/compute/v1/projects/%v/zones/%v/nodeGroups/%v/setIamPolicy", req.GetProject(), req.GetZone(), req.GetResource())
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "resource", url.QueryEscape(req.GetResource()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.Policy{}
@@ -1094,23 +1169,13 @@ func (c *nodeGroupsRESTClient) SetIamPolicy(ctx context.Context, req *computepb.
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SetIamPolicy")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1144,9 +1209,11 @@ func (c *nodeGroupsRESTClient) SetNodeTemplate(ctx context.Context, req *compute
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).SetNodeTemplate[0:len((*c.CallOptions).SetNodeTemplate):len((*c.CallOptions).SetNodeTemplate)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.Operation{}
@@ -1161,23 +1228,80 @@ func (c *nodeGroupsRESTClient) SetNodeTemplate(ctx context.Context, req *compute
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SetNodeTemplate")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	op := &Operation{
+		&zoneOperationsHandle{
+			c:       c.operationClient,
+			proto:   resp,
+			project: req.GetProject(),
+			zone:    req.GetZone(),
+		},
+	}
+	return op, nil
+}
+
+// SimulateMaintenanceEvent simulates maintenance event on specified nodes from the node group.
+func (c *nodeGroupsRESTClient) SimulateMaintenanceEvent(ctx context.Context, req *computepb.SimulateMaintenanceEventNodeGroupRequest, opts ...gax.CallOption) (*Operation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true}
+	body := req.GetNodeGroupsSimulateMaintenanceEventRequestResource()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/compute/v1/projects/%v/zones/%v/nodeGroups/%v/simulateMaintenanceEvent", req.GetProject(), req.GetZone(), req.GetNodeGroup())
+
+	params := url.Values{}
+	if req != nil && req.RequestId != nil {
+		params.Add("requestId", fmt.Sprintf("%v", req.GetRequestId()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "node_group", url.QueryEscape(req.GetNodeGroup()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).SimulateMaintenanceEvent[0:len((*c.CallOptions).SimulateMaintenanceEvent):len((*c.CallOptions).SimulateMaintenanceEvent)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &computepb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SimulateMaintenanceEvent")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
 		}
 
 		return nil
@@ -1212,9 +1336,11 @@ func (c *nodeGroupsRESTClient) TestIamPermissions(ctx context.Context, req *comp
 	baseUrl.Path += fmt.Sprintf("/compute/v1/projects/%v/zones/%v/nodeGroups/%v/testIamPermissions", req.GetProject(), req.GetZone(), req.GetResource())
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project", url.QueryEscape(req.GetProject()), "zone", url.QueryEscape(req.GetZone()), "resource", url.QueryEscape(req.GetResource()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &computepb.TestPermissionsResponse{}
@@ -1229,23 +1355,13 @@ func (c *nodeGroupsRESTClient) TestIamPermissions(ctx context.Context, req *comp
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "TestIamPermissions")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1254,151 +1370,4 @@ func (c *nodeGroupsRESTClient) TestIamPermissions(ctx context.Context, req *comp
 		return nil, e
 	}
 	return resp, nil
-}
-
-// NodeGroupIterator manages a stream of *computepb.NodeGroup.
-type NodeGroupIterator struct {
-	items    []*computepb.NodeGroup
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*computepb.NodeGroup, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *NodeGroupIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *NodeGroupIterator) Next() (*computepb.NodeGroup, error) {
-	var item *computepb.NodeGroup
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *NodeGroupIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *NodeGroupIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// NodeGroupNodeIterator manages a stream of *computepb.NodeGroupNode.
-type NodeGroupNodeIterator struct {
-	items    []*computepb.NodeGroupNode
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*computepb.NodeGroupNode, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *NodeGroupNodeIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *NodeGroupNodeIterator) Next() (*computepb.NodeGroupNode, error) {
-	var item *computepb.NodeGroupNode
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *NodeGroupNodeIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *NodeGroupNodeIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// NodeGroupsScopedListPair is a holder type for string/*computepb.NodeGroupsScopedList map entries
-type NodeGroupsScopedListPair struct {
-	Key   string
-	Value *computepb.NodeGroupsScopedList
-}
-
-// NodeGroupsScopedListPairIterator manages a stream of NodeGroupsScopedListPair.
-type NodeGroupsScopedListPairIterator struct {
-	items    []NodeGroupsScopedListPair
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []NodeGroupsScopedListPair, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *NodeGroupsScopedListPairIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *NodeGroupsScopedListPairIterator) Next() (NodeGroupsScopedListPair, error) {
-	var item NodeGroupsScopedListPair
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *NodeGroupsScopedListPairIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *NodeGroupsScopedListPairIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
 }

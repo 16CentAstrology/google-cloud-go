@@ -17,6 +17,7 @@ package pubsub
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -107,6 +108,197 @@ func TestCreateTopicWithConfig(t *testing.T) {
 	}
 }
 
+func TestTopic_IngestionKinesis(t *testing.T) {
+	c, srv := newFake(t)
+	defer c.Close()
+	defer srv.Close()
+
+	id := "test-topic-kinesis"
+	want := TopicConfig{
+		IngestionDataSourceSettings: &IngestionDataSourceSettings{
+			Source: &IngestionDataSourceAWSKinesis{
+				StreamARN:         "fake-stream-arn",
+				ConsumerARN:       "fake-consumer-arn",
+				AWSRoleARN:        "fake-aws-role-arn",
+				GCPServiceAccount: "fake-gcp-sa",
+			},
+		},
+	}
+
+	topic := mustCreateTopicWithConfig(t, c, id, &want)
+	got, err := topic.Config(context.Background())
+	if err != nil {
+		t.Fatalf("error getting topic config: %v", err)
+	}
+	want.State = TopicStateActive
+	opt := cmpopts.IgnoreUnexported(TopicConfig{})
+	if !testutil.Equal(got, want, opt) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// Update ingestion settings.
+	ctx := context.Background()
+	settings := &IngestionDataSourceSettings{
+		Source: &IngestionDataSourceAWSKinesis{
+			StreamARN:         "fake-stream-arn-2",
+			ConsumerARN:       "fake-consumer-arn-2",
+			AWSRoleARN:        "aws-role-arn-2",
+			GCPServiceAccount: "gcp-service-account-2",
+		},
+	}
+	config2, err := topic.Update(ctx, TopicConfigToUpdate{IngestionDataSourceSettings: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !testutil.Equal(config2.IngestionDataSourceSettings, settings, opt) {
+		t.Errorf("\ngot  %+v\nwant %+v", config2.IngestionDataSourceSettings, settings)
+	}
+
+	// Clear schema settings.
+	settings = &IngestionDataSourceSettings{}
+	config3, err := topic.Update(ctx, TopicConfigToUpdate{IngestionDataSourceSettings: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config3.IngestionDataSourceSettings != nil {
+		t.Errorf("got: %+v, want nil", config3.IngestionDataSourceSettings)
+	}
+}
+
+func TestTopic_IngestionCloudStorage(t *testing.T) {
+	c, srv := newFake(t)
+	defer c.Close()
+	defer srv.Close()
+
+	id := "test-topic-storage-ingestion"
+	want := TopicConfig{
+		IngestionDataSourceSettings: &IngestionDataSourceSettings{
+			Source: &IngestionDataSourceCloudStorage{
+				Bucket: "fake-bucket",
+				InputFormat: &IngestionDataSourceCloudStorageTextFormat{
+					Delimiter: ",",
+				},
+				MinimumObjectCreateTime: time.Now().Add(-time.Hour),
+				MatchGlob:               "**.txt",
+			},
+			PlatformLogsSettings: &PlatformLogsSettings{
+				Severity: PlatformLogsSeverityDisabled,
+			},
+		},
+	}
+
+	topic := mustCreateTopicWithConfig(t, c, id, &want)
+	got, err := topic.Config(context.Background())
+	if err != nil {
+		t.Fatalf("error getting topic config: %v", err)
+	}
+	want.State = TopicStateActive
+	opt := cmpopts.IgnoreUnexported(TopicConfig{})
+	if !testutil.Equal(got, want, opt) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// Update ingestion settings.
+	ctx := context.Background()
+	settings := &IngestionDataSourceSettings{
+		Source: &IngestionDataSourceCloudStorage{
+			Bucket:                  "fake-bucket-2",
+			InputFormat:             &IngestionDataSourceCloudStoragePubSubAvroFormat{},
+			MinimumObjectCreateTime: time.Now().Add(-2 * time.Hour),
+			MatchGlob:               "**.txt",
+		},
+		PlatformLogsSettings: &PlatformLogsSettings{
+			Severity: PlatformLogsSeverityError,
+		},
+	}
+	config2, err := topic.Update(ctx, TopicConfigToUpdate{IngestionDataSourceSettings: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !testutil.Equal(config2.IngestionDataSourceSettings, settings, opt) {
+		t.Errorf("\ngot  %+v\nwant %+v", config2.IngestionDataSourceSettings, settings)
+	}
+
+	// Clear ingestion settings.
+	settings = &IngestionDataSourceSettings{}
+	config3, err := topic.Update(ctx, TopicConfigToUpdate{IngestionDataSourceSettings: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config3.IngestionDataSourceSettings != nil {
+		t.Errorf("got: %+v, want nil", config3.IngestionDataSourceSettings)
+	}
+}
+
+func TestTopic_Ingestion(t *testing.T) {
+	c, srv := newFake(t)
+	defer c.Close()
+	defer srv.Close()
+	id := "test-topic-3p-ingestion"
+	gcpSA := "fake-service-account@fake-gcp-project.iam.gserviceaccount.com"
+	azureIngestion := &IngestionDataSourceAzureEventHubs{
+		ResourceGroup:     "fake-resource-group",
+		Namespace:         "fake-namespace",
+		EventHub:          "fake-event-hub",
+		ClientID:          "11111111-1111-1111-1111-111111111111",
+		TenantID:          "22222222-2222-2222-2222-222222222222",
+		SubscriptionID:    "33333333-3333-3333-3333-333333333333",
+		GCPServiceAccount: gcpSA,
+	}
+	mskIngestion := &IngestionDataSourceAmazonMSK{
+		ClusterARN:        "arn:aws:kafka:us-east-1:111111111111:cluster/fake-cluster-name/11111111-1111-1",
+		Topic:             "fake-msk-topic-name",
+		AWSRoleARN:        "arn:aws:iam::111111111111:role/fake-role-name",
+		GCPServiceAccount: gcpSA,
+	}
+	confluentCloud := &IngestionDataSourceConfluentCloud{
+		BootstrapServer:   "fake-bootstrap-server-id.us-south1.gcp.confluent.cloud:9092",
+		ClusterID:         "fake-cluster-id",
+		Topic:             "fake-confluent-topic-name",
+		IdentityPoolID:    "fake-pool-id",
+		GCPServiceAccount: gcpSA,
+	}
+	want := TopicConfig{
+		IngestionDataSourceSettings: &IngestionDataSourceSettings{
+			Source: azureIngestion,
+		},
+	}
+	topic := mustCreateTopicWithConfig(t, c, id, &want)
+	got, err := topic.Config(context.Background())
+	if err != nil {
+		t.Fatalf("error getting topic config: %v", err)
+	}
+	want.State = TopicStateActive
+	opt := cmpopts.IgnoreUnexported(TopicConfig{})
+	if !testutil.Equal(got, want, opt) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+
+	// Update ingestion settings to use MSK
+	ctx := context.Background()
+	settings := &IngestionDataSourceSettings{
+		Source: mskIngestion,
+	}
+	config2, err := topic.Update(ctx, TopicConfigToUpdate{IngestionDataSourceSettings: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !testutil.Equal(config2.IngestionDataSourceSettings, settings, opt) {
+		t.Errorf("\ngot  %+v\nwant %+v", config2.IngestionDataSourceSettings, settings)
+	}
+
+	settings = &IngestionDataSourceSettings{
+		Source: confluentCloud,
+	}
+	config3, err := topic.Update(ctx, TopicConfigToUpdate{IngestionDataSourceSettings: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !testutil.Equal(config3.IngestionDataSourceSettings, settings, opt) {
+		t.Errorf("\ngot  %+v\nwant %+v", config3.IngestionDataSourceSettings, settings)
+	}
+}
+
 func TestListTopics(t *testing.T) {
 	ctx := context.Background()
 	c, srv := newFake(t)
@@ -167,8 +359,8 @@ func TestStopPublishOrder(t *testing.T) {
 	topic.Stop()
 	r := topic.Publish(ctx, &Message{})
 	_, err := r.Get(ctx)
-	if err != errTopicStopped {
-		t.Errorf("got %v, want errTopicStopped", err)
+	if !errors.Is(err, ErrTopicStopped) {
+		t.Errorf("got %v, want ErrTopicStopped", err)
 	}
 }
 
@@ -196,7 +388,7 @@ func TestPublishTimeout(t *testing.T) {
 	select {
 	case <-r.Ready():
 		_, err = r.Get(ctx)
-		if err != context.DeadlineExceeded {
+		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("got %v, want context.DeadlineExceeded", err)
 		}
 	case <-time.After(2 * topic.PublishSettings.Timeout):
@@ -301,6 +493,48 @@ func TestUpdateTopic_MessageStoragePolicy(t *testing.T) {
 	}
 	if !testutil.Equal(config2, want, opt) {
 		t.Errorf("\ngot  %+v\nwant %+v", config2, want)
+	}
+}
+
+func TestUpdateTopic_SchemaSettings(t *testing.T) {
+	ctx := context.Background()
+	client, srv := newFake(t)
+	defer client.Close()
+	defer srv.Close()
+
+	topic := mustCreateTopic(t, client, "T")
+	config, err := topic.Config(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := TopicConfig{}
+	opt := cmpopts.IgnoreUnexported(TopicConfig{})
+	if !testutil.Equal(config, want, opt) {
+		t.Errorf("\ngot  %+v\nwant %+v", config, want)
+	}
+
+	// Update schema settings.
+	settings := &SchemaSettings{
+		Schema:          "some-schema",
+		Encoding:        EncodingJSON,
+		FirstRevisionID: "1234",
+	}
+	config2, err := topic.Update(ctx, TopicConfigToUpdate{SchemaSettings: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !testutil.Equal(config2.SchemaSettings, settings, opt) {
+		t.Errorf("\ngot  %+v\nwant %+v", config2.SchemaSettings, settings)
+	}
+
+	// Clear schema settings.
+	settings = &SchemaSettings{}
+	config3, err := topic.Update(ctx, TopicConfigToUpdate{SchemaSettings: settings})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config3.SchemaSettings != nil {
+		t.Errorf("got: %+v, want nil", config3.SchemaSettings)
 	}
 }
 
@@ -418,8 +652,8 @@ func TestFlushStopTopic(t *testing.T) {
 	r5 := topic.Publish(ctx, &Message{
 		Data: []byte("this should fail"),
 	})
-	if _, err := r5.Get(ctx); err != errTopicStopped {
-		t.Errorf("got %v, want errTopicStopped", err)
+	if _, err := r5.Get(ctx); !errors.Is(err, ErrTopicStopped) {
+		t.Errorf("got %v, want ErrTopicStopped", err)
 	}
 }
 
@@ -630,4 +864,43 @@ func addSingleResponse(srv *pstest.Server, id string) {
 	srv.AddPublishResponse(&pb.PublishResponse{
 		MessageIds: []string{id},
 	}, nil)
+}
+
+func TestPublishOrderingNotEnabled(t *testing.T) {
+	ctx := context.Background()
+	c, srv := newFake(t)
+	defer c.Close()
+	defer srv.Close()
+
+	topic, err := c.CreateTopic(ctx, "test-topic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := publishSingleMessageWithKey(ctx, topic, "test", "non-existent-key")
+	if _, err := res.Get(ctx); !errors.Is(err, errTopicOrderingNotEnabled) {
+		t.Errorf("got %v, want errTopicOrderingNotEnabled", err)
+	}
+}
+
+func TestPublishCompression(t *testing.T) {
+	ctx := context.Background()
+	client, srv := newFake(t)
+	defer client.Close()
+	defer srv.Close()
+
+	topic := mustCreateTopic(t, client, "topic-compression")
+	defer topic.Stop()
+
+	topic.PublishSettings.EnableCompression = true
+	topic.PublishSettings.CompressionBytesThreshold = 50
+
+	const messageSizeBytes = 1000
+
+	msg := &Message{Data: bytes.Repeat([]byte{'A'}, int(messageSizeBytes))}
+	res := topic.Publish(ctx, msg)
+
+	_, err := res.Get(ctx)
+	if err != nil {
+		t.Errorf("publish result got err: %v", err)
+	}
 }

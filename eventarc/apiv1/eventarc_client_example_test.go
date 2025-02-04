@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,10 +21,10 @@ import (
 
 	eventarc "cloud.google.com/go/eventarc/apiv1"
 	eventarcpb "cloud.google.com/go/eventarc/apiv1/eventarcpb"
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/api/iterator"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 )
 
 func ExampleNewClient() {
@@ -44,7 +44,24 @@ func ExampleNewClient() {
 	_ = c
 }
 
-func ExampleClient_GetTrigger() {
+func ExampleNewRESTClient() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewRESTClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	// TODO: Use client.
+	_ = c
+}
+
+func ExampleClient_CreateChannel() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -57,11 +74,16 @@ func ExampleClient_GetTrigger() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.GetTriggerRequest{
+	req := &eventarcpb.CreateChannelRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetTriggerRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#CreateChannelRequest.
 	}
-	resp, err := c.GetTrigger(ctx, req)
+	op, err := c.CreateChannel(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -69,7 +91,7 @@ func ExampleClient_GetTrigger() {
 	_ = resp
 }
 
-func ExampleClient_ListTriggers() {
+func ExampleClient_CreateChannelConnection() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -82,22 +104,141 @@ func ExampleClient_ListTriggers() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.ListTriggersRequest{
+	req := &eventarcpb.CreateChannelConnectionRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListTriggersRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#CreateChannelConnectionRequest.
 	}
-	it := c.ListTriggers(ctx, req)
-	for {
-		resp, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			// TODO: Handle error.
-		}
-		// TODO: Use resp.
-		_ = resp
+	op, err := c.CreateChannelConnection(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
 	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_CreateEnrollment() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.CreateEnrollmentRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#CreateEnrollmentRequest.
+	}
+	op, err := c.CreateEnrollment(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_CreateGoogleApiSource() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.CreateGoogleApiSourceRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#CreateGoogleApiSourceRequest.
+	}
+	op, err := c.CreateGoogleApiSource(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_CreateMessageBus() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.CreateMessageBusRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#CreateMessageBusRequest.
+	}
+	op, err := c.CreateMessageBus(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_CreatePipeline() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.CreatePipelineRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#CreatePipelineRequest.
+	}
+	op, err := c.CreatePipeline(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
 }
 
 func ExampleClient_CreateTrigger() {
@@ -130,7 +271,7 @@ func ExampleClient_CreateTrigger() {
 	_ = resp
 }
 
-func ExampleClient_UpdateTrigger() {
+func ExampleClient_DeleteChannel() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -143,11 +284,161 @@ func ExampleClient_UpdateTrigger() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.UpdateTriggerRequest{
+	req := &eventarcpb.DeleteChannelRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdateTriggerRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#DeleteChannelRequest.
 	}
-	op, err := c.UpdateTrigger(ctx, req)
+	op, err := c.DeleteChannel(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_DeleteChannelConnection() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.DeleteChannelConnectionRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#DeleteChannelConnectionRequest.
+	}
+	op, err := c.DeleteChannelConnection(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_DeleteEnrollment() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.DeleteEnrollmentRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#DeleteEnrollmentRequest.
+	}
+	op, err := c.DeleteEnrollment(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_DeleteGoogleApiSource() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.DeleteGoogleApiSourceRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#DeleteGoogleApiSourceRequest.
+	}
+	op, err := c.DeleteGoogleApiSource(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_DeleteMessageBus() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.DeleteMessageBusRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#DeleteMessageBusRequest.
+	}
+	op, err := c.DeleteMessageBus(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_DeletePipeline() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.DeletePipelineRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#DeletePipelineRequest.
+	}
+	op, err := c.DeletePipeline(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -215,7 +506,7 @@ func ExampleClient_GetChannel() {
 	_ = resp
 }
 
-func ExampleClient_ListChannels() {
+func ExampleClient_GetChannelConnection() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -228,47 +519,11 @@ func ExampleClient_ListChannels() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.ListChannelsRequest{
+	req := &eventarcpb.GetChannelConnectionRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListChannelsRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetChannelConnectionRequest.
 	}
-	it := c.ListChannels(ctx, req)
-	for {
-		resp, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			// TODO: Handle error.
-		}
-		// TODO: Use resp.
-		_ = resp
-	}
-}
-
-func ExampleClient_CreateChannel() {
-	ctx := context.Background()
-	// This snippet has been automatically generated and should be regarded as a code template only.
-	// It will require modifications to work:
-	// - It may require correct/in-range values for request initialization.
-	// - It may require specifying regional endpoints when creating the service client as shown in:
-	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := eventarc.NewClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	defer c.Close()
-
-	req := &eventarcpb.CreateChannelRequest{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#CreateChannelRequest.
-	}
-	op, err := c.CreateChannel(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	resp, err := op.Wait(ctx)
+	resp, err := c.GetChannelConnection(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -276,7 +531,7 @@ func ExampleClient_CreateChannel() {
 	_ = resp
 }
 
-func ExampleClient_UpdateChannel() {
+func ExampleClient_GetEnrollment() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -289,16 +544,11 @@ func ExampleClient_UpdateChannel() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.UpdateChannelRequest{
+	req := &eventarcpb.GetEnrollmentRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdateChannelRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetEnrollmentRequest.
 	}
-	op, err := c.UpdateChannel(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	resp, err := op.Wait(ctx)
+	resp, err := c.GetEnrollment(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -306,7 +556,7 @@ func ExampleClient_UpdateChannel() {
 	_ = resp
 }
 
-func ExampleClient_DeleteChannel() {
+func ExampleClient_GetGoogleApiSource() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -319,16 +569,86 @@ func ExampleClient_DeleteChannel() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.DeleteChannelRequest{
+	req := &eventarcpb.GetGoogleApiSourceRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#DeleteChannelRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetGoogleApiSourceRequest.
 	}
-	op, err := c.DeleteChannel(ctx, req)
+	resp, err := c.GetGoogleApiSource(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
+	// TODO: Use resp.
+	_ = resp
+}
 
-	resp, err := op.Wait(ctx)
+func ExampleClient_GetGoogleChannelConfig() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.GetGoogleChannelConfigRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetGoogleChannelConfigRequest.
+	}
+	resp, err := c.GetGoogleChannelConfig(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_GetMessageBus() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.GetMessageBusRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetMessageBusRequest.
+	}
+	resp, err := c.GetMessageBus(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_GetPipeline() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.GetPipelineRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetPipelineRequest.
+	}
+	resp, err := c.GetPipeline(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -361,7 +681,7 @@ func ExampleClient_GetProvider() {
 	_ = resp
 }
 
-func ExampleClient_ListProviders() {
+func ExampleClient_GetTrigger() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -374,42 +694,11 @@ func ExampleClient_ListProviders() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.ListProvidersRequest{
+	req := &eventarcpb.GetTriggerRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListProvidersRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetTriggerRequest.
 	}
-	it := c.ListProviders(ctx, req)
-	for {
-		resp, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			// TODO: Handle error.
-		}
-		// TODO: Use resp.
-		_ = resp
-	}
-}
-
-func ExampleClient_GetChannelConnection() {
-	ctx := context.Background()
-	// This snippet has been automatically generated and should be regarded as a code template only.
-	// It will require modifications to work:
-	// - It may require correct/in-range values for request initialization.
-	// - It may require specifying regional endpoints when creating the service client as shown in:
-	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
-	c, err := eventarc.NewClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	defer c.Close()
-
-	req := &eventarcpb.GetChannelConnectionRequest{
-		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetChannelConnectionRequest.
-	}
-	resp, err := c.GetChannelConnection(ctx, req)
+	resp, err := c.GetTrigger(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -445,10 +734,16 @@ func ExampleClient_ListChannelConnections() {
 		}
 		// TODO: Use resp.
 		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListChannelConnectionsResponse)
 	}
 }
 
-func ExampleClient_CreateChannelConnection() {
+func ExampleClient_ListChannels() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -461,11 +756,307 @@ func ExampleClient_CreateChannelConnection() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.CreateChannelConnectionRequest{
+	req := &eventarcpb.ListChannelsRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#CreateChannelConnectionRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListChannelsRequest.
 	}
-	op, err := c.CreateChannelConnection(ctx, req)
+	it := c.ListChannels(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListChannelsResponse)
+	}
+}
+
+func ExampleClient_ListEnrollments() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.ListEnrollmentsRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListEnrollmentsRequest.
+	}
+	it := c.ListEnrollments(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListEnrollmentsResponse)
+	}
+}
+
+func ExampleClient_ListGoogleApiSources() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.ListGoogleApiSourcesRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListGoogleApiSourcesRequest.
+	}
+	it := c.ListGoogleApiSources(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListGoogleApiSourcesResponse)
+	}
+}
+
+func ExampleClient_ListMessageBusEnrollments() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.ListMessageBusEnrollmentsRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListMessageBusEnrollmentsRequest.
+	}
+	it := c.ListMessageBusEnrollments(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListMessageBusEnrollmentsResponse)
+	}
+}
+
+func ExampleClient_ListMessageBuses() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.ListMessageBusesRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListMessageBusesRequest.
+	}
+	it := c.ListMessageBuses(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListMessageBusesResponse)
+	}
+}
+
+func ExampleClient_ListPipelines() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.ListPipelinesRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListPipelinesRequest.
+	}
+	it := c.ListPipelines(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListPipelinesResponse)
+	}
+}
+
+func ExampleClient_ListProviders() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.ListProvidersRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListProvidersRequest.
+	}
+	it := c.ListProviders(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListProvidersResponse)
+	}
+}
+
+func ExampleClient_ListTriggers() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.ListTriggersRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#ListTriggersRequest.
+	}
+	it := c.ListTriggers(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*eventarcpb.ListTriggersResponse)
+	}
+}
+
+func ExampleClient_UpdateChannel() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.UpdateChannelRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdateChannelRequest.
+	}
+	op, err := c.UpdateChannel(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -478,7 +1069,7 @@ func ExampleClient_CreateChannelConnection() {
 	_ = resp
 }
 
-func ExampleClient_DeleteChannelConnection() {
+func ExampleClient_UpdateEnrollment() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -491,11 +1082,11 @@ func ExampleClient_DeleteChannelConnection() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.DeleteChannelConnectionRequest{
+	req := &eventarcpb.UpdateEnrollmentRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#DeleteChannelConnectionRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdateEnrollmentRequest.
 	}
-	op, err := c.DeleteChannelConnection(ctx, req)
+	op, err := c.UpdateEnrollment(ctx, req)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -508,7 +1099,7 @@ func ExampleClient_DeleteChannelConnection() {
 	_ = resp
 }
 
-func ExampleClient_GetGoogleChannelConfig() {
+func ExampleClient_UpdateGoogleApiSource() {
 	ctx := context.Background()
 	// This snippet has been automatically generated and should be regarded as a code template only.
 	// It will require modifications to work:
@@ -521,11 +1112,16 @@ func ExampleClient_GetGoogleChannelConfig() {
 	}
 	defer c.Close()
 
-	req := &eventarcpb.GetGoogleChannelConfigRequest{
+	req := &eventarcpb.UpdateGoogleApiSourceRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#GetGoogleChannelConfigRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdateGoogleApiSourceRequest.
 	}
-	resp, err := c.GetGoogleChannelConfig(ctx, req)
+	op, err := c.UpdateGoogleApiSource(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -551,6 +1147,96 @@ func ExampleClient_UpdateGoogleChannelConfig() {
 		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdateGoogleChannelConfigRequest.
 	}
 	resp, err := c.UpdateGoogleChannelConfig(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_UpdateMessageBus() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.UpdateMessageBusRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdateMessageBusRequest.
+	}
+	op, err := c.UpdateMessageBus(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_UpdatePipeline() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.UpdatePipelineRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdatePipelineRequest.
+	}
+	op, err := c.UpdatePipeline(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleClient_UpdateTrigger() {
+	ctx := context.Background()
+	// This snippet has been automatically generated and should be regarded as a code template only.
+	// It will require modifications to work:
+	// - It may require correct/in-range values for request initialization.
+	// - It may require specifying regional endpoints when creating the service client as shown in:
+	//   https://pkg.go.dev/cloud.google.com/go#hdr-Client_Options
+	c, err := eventarc.NewClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	defer c.Close()
+
+	req := &eventarcpb.UpdateTriggerRequest{
+		// TODO: Fill request struct fields.
+		// See https://pkg.go.dev/cloud.google.com/go/eventarc/apiv1/eventarcpb#UpdateTriggerRequest.
+	}
+	op, err := c.UpdateTrigger(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	resp, err := op.Wait(ctx)
 	if err != nil {
 		// TODO: Handle error.
 	}
@@ -611,6 +1297,12 @@ func ExampleClient_ListLocations() {
 		}
 		// TODO: Use resp.
 		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*locationpb.ListLocationsResponse)
 	}
 }
 
@@ -629,7 +1321,7 @@ func ExampleClient_GetIamPolicy() {
 
 	req := &iampb.GetIamPolicyRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/iam/v1#GetIamPolicyRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/iam/apiv1/iampb#GetIamPolicyRequest.
 	}
 	resp, err := c.GetIamPolicy(ctx, req)
 	if err != nil {
@@ -654,7 +1346,7 @@ func ExampleClient_SetIamPolicy() {
 
 	req := &iampb.SetIamPolicyRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/iam/v1#SetIamPolicyRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/iam/apiv1/iampb#SetIamPolicyRequest.
 	}
 	resp, err := c.SetIamPolicy(ctx, req)
 	if err != nil {
@@ -679,7 +1371,7 @@ func ExampleClient_TestIamPermissions() {
 
 	req := &iampb.TestIamPermissionsRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/iam/v1#TestIamPermissionsRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/iam/apiv1/iampb#TestIamPermissionsRequest.
 	}
 	resp, err := c.TestIamPermissions(ctx, req)
 	if err != nil {
@@ -704,7 +1396,7 @@ func ExampleClient_CancelOperation() {
 
 	req := &longrunningpb.CancelOperationRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/longrunning#CancelOperationRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/longrunning/autogen/longrunningpb#CancelOperationRequest.
 	}
 	err = c.CancelOperation(ctx, req)
 	if err != nil {
@@ -727,7 +1419,7 @@ func ExampleClient_DeleteOperation() {
 
 	req := &longrunningpb.DeleteOperationRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/longrunning#DeleteOperationRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/longrunning/autogen/longrunningpb#DeleteOperationRequest.
 	}
 	err = c.DeleteOperation(ctx, req)
 	if err != nil {
@@ -750,7 +1442,7 @@ func ExampleClient_GetOperation() {
 
 	req := &longrunningpb.GetOperationRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/longrunning#GetOperationRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/longrunning/autogen/longrunningpb#GetOperationRequest.
 	}
 	resp, err := c.GetOperation(ctx, req)
 	if err != nil {
@@ -775,7 +1467,7 @@ func ExampleClient_ListOperations() {
 
 	req := &longrunningpb.ListOperationsRequest{
 		// TODO: Fill request struct fields.
-		// See https://pkg.go.dev/google.golang.org/genproto/googleapis/longrunning#ListOperationsRequest.
+		// See https://pkg.go.dev/cloud.google.com/go/longrunning/autogen/longrunningpb#ListOperationsRequest.
 	}
 	it := c.ListOperations(ctx, req)
 	for {
@@ -788,5 +1480,11 @@ func ExampleClient_ListOperations() {
 		}
 		// TODO: Use resp.
 		_ = resp
+
+		// If you need to access the underlying RPC response,
+		// you can do so by casting the `Response` as below.
+		// Otherwise, remove this line. Only populated after
+		// first call to Next(). Not safe for concurrent access.
+		_ = it.Response.(*longrunningpb.ListOperationsResponse)
 	}
 }

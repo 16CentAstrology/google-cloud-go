@@ -21,8 +21,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
-	dpb "github.com/golang/protobuf/ptypes/duration"
-	fmpb "google.golang.org/genproto/protobuf/field_mask"
+	dpb "google.golang.org/protobuf/types/known/durationpb"
+	fmpb "google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 func TestTopicConfigToProtoConversion(t *testing.T) {

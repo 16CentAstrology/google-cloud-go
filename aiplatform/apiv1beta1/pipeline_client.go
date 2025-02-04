@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,27 +20,25 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
 	"time"
 
 	aiplatformpb "cloud.google.com/go/aiplatform/apiv1beta1/aiplatformpb"
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/longrunning"
 	lroauto "cloud.google.com/go/longrunning/autogen"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -49,35 +47,40 @@ var newPipelineClientHook clientHook
 
 // PipelineCallOptions contains the retry settings for each method of PipelineClient.
 type PipelineCallOptions struct {
-	CreateTrainingPipeline []gax.CallOption
-	GetTrainingPipeline    []gax.CallOption
-	ListTrainingPipelines  []gax.CallOption
-	DeleteTrainingPipeline []gax.CallOption
-	CancelTrainingPipeline []gax.CallOption
-	CreatePipelineJob      []gax.CallOption
-	GetPipelineJob         []gax.CallOption
-	ListPipelineJobs       []gax.CallOption
-	DeletePipelineJob      []gax.CallOption
-	CancelPipelineJob      []gax.CallOption
-	GetLocation            []gax.CallOption
-	ListLocations          []gax.CallOption
-	GetIamPolicy           []gax.CallOption
-	SetIamPolicy           []gax.CallOption
-	TestIamPermissions     []gax.CallOption
-	CancelOperation        []gax.CallOption
-	DeleteOperation        []gax.CallOption
-	GetOperation           []gax.CallOption
-	ListOperations         []gax.CallOption
-	WaitOperation          []gax.CallOption
+	CreateTrainingPipeline  []gax.CallOption
+	GetTrainingPipeline     []gax.CallOption
+	ListTrainingPipelines   []gax.CallOption
+	DeleteTrainingPipeline  []gax.CallOption
+	CancelTrainingPipeline  []gax.CallOption
+	CreatePipelineJob       []gax.CallOption
+	GetPipelineJob          []gax.CallOption
+	ListPipelineJobs        []gax.CallOption
+	DeletePipelineJob       []gax.CallOption
+	BatchDeletePipelineJobs []gax.CallOption
+	CancelPipelineJob       []gax.CallOption
+	BatchCancelPipelineJobs []gax.CallOption
+	GetLocation             []gax.CallOption
+	ListLocations           []gax.CallOption
+	GetIamPolicy            []gax.CallOption
+	SetIamPolicy            []gax.CallOption
+	TestIamPermissions      []gax.CallOption
+	CancelOperation         []gax.CallOption
+	DeleteOperation         []gax.CallOption
+	GetOperation            []gax.CallOption
+	ListOperations          []gax.CallOption
+	WaitOperation           []gax.CallOption
 }
 
 func defaultPipelineGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("aiplatform.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("aiplatform.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("aiplatform.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://aiplatform.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -85,51 +88,75 @@ func defaultPipelineGRPCClientOptions() []option.ClientOption {
 
 func defaultPipelineCallOptions() *PipelineCallOptions {
 	return &PipelineCallOptions{
-		CreateTrainingPipeline: []gax.CallOption{},
-		GetTrainingPipeline:    []gax.CallOption{},
-		ListTrainingPipelines:  []gax.CallOption{},
-		DeleteTrainingPipeline: []gax.CallOption{},
-		CancelTrainingPipeline: []gax.CallOption{},
-		CreatePipelineJob:      []gax.CallOption{},
-		GetPipelineJob:         []gax.CallOption{},
-		ListPipelineJobs:       []gax.CallOption{},
-		DeletePipelineJob:      []gax.CallOption{},
-		CancelPipelineJob:      []gax.CallOption{},
-		GetLocation:            []gax.CallOption{},
-		ListLocations:          []gax.CallOption{},
-		GetIamPolicy:           []gax.CallOption{},
-		SetIamPolicy:           []gax.CallOption{},
-		TestIamPermissions:     []gax.CallOption{},
-		CancelOperation:        []gax.CallOption{},
-		DeleteOperation:        []gax.CallOption{},
-		GetOperation:           []gax.CallOption{},
-		ListOperations:         []gax.CallOption{},
-		WaitOperation:          []gax.CallOption{},
+		CreateTrainingPipeline: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		GetTrainingPipeline: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListTrainingPipelines: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		DeleteTrainingPipeline: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		CancelTrainingPipeline: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		CreatePipelineJob:       []gax.CallOption{},
+		GetPipelineJob:          []gax.CallOption{},
+		ListPipelineJobs:        []gax.CallOption{},
+		DeletePipelineJob:       []gax.CallOption{},
+		BatchDeletePipelineJobs: []gax.CallOption{},
+		CancelPipelineJob:       []gax.CallOption{},
+		BatchCancelPipelineJobs: []gax.CallOption{},
+		GetLocation:             []gax.CallOption{},
+		ListLocations:           []gax.CallOption{},
+		GetIamPolicy:            []gax.CallOption{},
+		SetIamPolicy:            []gax.CallOption{},
+		TestIamPermissions:      []gax.CallOption{},
+		CancelOperation:         []gax.CallOption{},
+		DeleteOperation:         []gax.CallOption{},
+		GetOperation:            []gax.CallOption{},
+		ListOperations:          []gax.CallOption{},
+		WaitOperation:           []gax.CallOption{},
 	}
 }
 
 func defaultPipelineRESTCallOptions() *PipelineCallOptions {
 	return &PipelineCallOptions{
-		CreateTrainingPipeline: []gax.CallOption{},
-		GetTrainingPipeline:    []gax.CallOption{},
-		ListTrainingPipelines:  []gax.CallOption{},
-		DeleteTrainingPipeline: []gax.CallOption{},
-		CancelTrainingPipeline: []gax.CallOption{},
-		CreatePipelineJob:      []gax.CallOption{},
-		GetPipelineJob:         []gax.CallOption{},
-		ListPipelineJobs:       []gax.CallOption{},
-		DeletePipelineJob:      []gax.CallOption{},
-		CancelPipelineJob:      []gax.CallOption{},
-		GetLocation:            []gax.CallOption{},
-		ListLocations:          []gax.CallOption{},
-		GetIamPolicy:           []gax.CallOption{},
-		SetIamPolicy:           []gax.CallOption{},
-		TestIamPermissions:     []gax.CallOption{},
-		CancelOperation:        []gax.CallOption{},
-		DeleteOperation:        []gax.CallOption{},
-		GetOperation:           []gax.CallOption{},
-		ListOperations:         []gax.CallOption{},
-		WaitOperation:          []gax.CallOption{},
+		CreateTrainingPipeline: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		GetTrainingPipeline: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListTrainingPipelines: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		DeleteTrainingPipeline: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		CancelTrainingPipeline: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		CreatePipelineJob:       []gax.CallOption{},
+		GetPipelineJob:          []gax.CallOption{},
+		ListPipelineJobs:        []gax.CallOption{},
+		DeletePipelineJob:       []gax.CallOption{},
+		BatchDeletePipelineJobs: []gax.CallOption{},
+		CancelPipelineJob:       []gax.CallOption{},
+		BatchCancelPipelineJobs: []gax.CallOption{},
+		GetLocation:             []gax.CallOption{},
+		ListLocations:           []gax.CallOption{},
+		GetIamPolicy:            []gax.CallOption{},
+		SetIamPolicy:            []gax.CallOption{},
+		TestIamPermissions:      []gax.CallOption{},
+		CancelOperation:         []gax.CallOption{},
+		DeleteOperation:         []gax.CallOption{},
+		GetOperation:            []gax.CallOption{},
+		ListOperations:          []gax.CallOption{},
+		WaitOperation:           []gax.CallOption{},
 	}
 }
 
@@ -149,7 +176,11 @@ type internalPipelineClient interface {
 	ListPipelineJobs(context.Context, *aiplatformpb.ListPipelineJobsRequest, ...gax.CallOption) *PipelineJobIterator
 	DeletePipelineJob(context.Context, *aiplatformpb.DeletePipelineJobRequest, ...gax.CallOption) (*DeletePipelineJobOperation, error)
 	DeletePipelineJobOperation(name string) *DeletePipelineJobOperation
+	BatchDeletePipelineJobs(context.Context, *aiplatformpb.BatchDeletePipelineJobsRequest, ...gax.CallOption) (*BatchDeletePipelineJobsOperation, error)
+	BatchDeletePipelineJobsOperation(name string) *BatchDeletePipelineJobsOperation
 	CancelPipelineJob(context.Context, *aiplatformpb.CancelPipelineJobRequest, ...gax.CallOption) error
+	BatchCancelPipelineJobs(context.Context, *aiplatformpb.BatchCancelPipelineJobsRequest, ...gax.CallOption) (*BatchCancelPipelineJobsOperation, error)
+	BatchCancelPipelineJobsOperation(name string) *BatchCancelPipelineJobsOperation
 	GetLocation(context.Context, *locationpb.GetLocationRequest, ...gax.CallOption) (*locationpb.Location, error)
 	ListLocations(context.Context, *locationpb.ListLocationsRequest, ...gax.CallOption) *LocationIterator
 	GetIamPolicy(context.Context, *iampb.GetIamPolicyRequest, ...gax.CallOption) (*iampb.Policy, error)
@@ -234,13 +265,17 @@ func (c *PipelineClient) DeleteTrainingPipelineOperation(name string) *DeleteTra
 // CancelTrainingPipeline cancels a TrainingPipeline.
 // Starts asynchronous cancellation on the TrainingPipeline. The server
 // makes a best effort to cancel the pipeline, but success is not
-// guaranteed. Clients can use PipelineService.GetTrainingPipeline or
-// other methods to check whether the cancellation succeeded or whether the
+// guaranteed. Clients can use
+// PipelineService.GetTrainingPipeline
+// or other methods to check whether the cancellation succeeded or whether the
 // pipeline completed despite cancellation. On successful cancellation,
 // the TrainingPipeline is not deleted; instead it becomes a pipeline with
-// a TrainingPipeline.error value with a google.rpc.Status.code of 1,
-// corresponding to Code.CANCELLED, and TrainingPipeline.state is set to
-// CANCELLED.
+// a
+// TrainingPipeline.error
+// value with a google.rpc.Status.code of 1,
+// corresponding to Code.CANCELLED, and
+// TrainingPipeline.state
+// is set to CANCELLED.
 func (c *PipelineClient) CancelTrainingPipeline(ctx context.Context, req *aiplatformpb.CancelTrainingPipelineRequest, opts ...gax.CallOption) error {
 	return c.internalClient.CancelTrainingPipeline(ctx, req, opts...)
 }
@@ -271,18 +306,51 @@ func (c *PipelineClient) DeletePipelineJobOperation(name string) *DeletePipeline
 	return c.internalClient.DeletePipelineJobOperation(name)
 }
 
+// BatchDeletePipelineJobs batch deletes PipelineJobs
+// The Operation is atomic. If it fails, none of the PipelineJobs are deleted.
+// If it succeeds, all of the PipelineJobs are deleted.
+func (c *PipelineClient) BatchDeletePipelineJobs(ctx context.Context, req *aiplatformpb.BatchDeletePipelineJobsRequest, opts ...gax.CallOption) (*BatchDeletePipelineJobsOperation, error) {
+	return c.internalClient.BatchDeletePipelineJobs(ctx, req, opts...)
+}
+
+// BatchDeletePipelineJobsOperation returns a new BatchDeletePipelineJobsOperation from a given name.
+// The name must be that of a previously created BatchDeletePipelineJobsOperation, possibly from a different process.
+func (c *PipelineClient) BatchDeletePipelineJobsOperation(name string) *BatchDeletePipelineJobsOperation {
+	return c.internalClient.BatchDeletePipelineJobsOperation(name)
+}
+
 // CancelPipelineJob cancels a PipelineJob.
 // Starts asynchronous cancellation on the PipelineJob. The server
 // makes a best effort to cancel the pipeline, but success is not
-// guaranteed. Clients can use PipelineService.GetPipelineJob or
-// other methods to check whether the cancellation succeeded or whether the
+// guaranteed. Clients can use
+// PipelineService.GetPipelineJob
+// or other methods to check whether the cancellation succeeded or whether the
 // pipeline completed despite cancellation. On successful cancellation,
 // the PipelineJob is not deleted; instead it becomes a pipeline with
-// a PipelineJob.error value with a google.rpc.Status.code of 1,
-// corresponding to Code.CANCELLED, and PipelineJob.state is set to
-// CANCELLED.
+// a PipelineJob.error
+// value with a google.rpc.Status.code of 1,
+// corresponding to Code.CANCELLED, and
+// PipelineJob.state is
+// set to CANCELLED.
 func (c *PipelineClient) CancelPipelineJob(ctx context.Context, req *aiplatformpb.CancelPipelineJobRequest, opts ...gax.CallOption) error {
 	return c.internalClient.CancelPipelineJob(ctx, req, opts...)
+}
+
+// BatchCancelPipelineJobs batch cancel PipelineJobs.
+// Firstly the server will check if all the jobs are in non-terminal states,
+// and skip the jobs that are already terminated.
+// If the operation failed, none of the pipeline jobs are cancelled.
+// The server will poll the states of all the pipeline jobs periodically
+// to check the cancellation status.
+// This operation will return an LRO.
+func (c *PipelineClient) BatchCancelPipelineJobs(ctx context.Context, req *aiplatformpb.BatchCancelPipelineJobsRequest, opts ...gax.CallOption) (*BatchCancelPipelineJobsOperation, error) {
+	return c.internalClient.BatchCancelPipelineJobs(ctx, req, opts...)
+}
+
+// BatchCancelPipelineJobsOperation returns a new BatchCancelPipelineJobsOperation from a given name.
+// The name must be that of a previously created BatchCancelPipelineJobsOperation, possibly from a different process.
+func (c *PipelineClient) BatchCancelPipelineJobsOperation(name string) *BatchCancelPipelineJobsOperation {
+	return c.internalClient.BatchCancelPipelineJobsOperation(name)
 }
 
 // GetLocation gets information about a location.
@@ -353,9 +421,6 @@ type pipelineGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing PipelineClient
 	CallOptions **PipelineCallOptions
 
@@ -374,7 +439,9 @@ type pipelineGRPCClient struct {
 	locationsClient locationpb.LocationsClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewPipelineClient creates a new pipeline service client based on gRPC.
@@ -393,11 +460,6 @@ func NewPipelineClient(ctx context.Context, opts ...option.ClientOption) (*Pipel
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -406,9 +468,9 @@ func NewPipelineClient(ctx context.Context, opts ...option.ClientOption) (*Pipel
 
 	c := &pipelineGRPCClient{
 		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
 		pipelineClient:   aiplatformpb.NewPipelineServiceClient(connPool),
 		CallOptions:      &client.CallOptions,
+		logger:           internaloption.GetLogger(opts),
 		operationsClient: longrunningpb.NewOperationsClient(connPool),
 		iamPolicyClient:  iampb.NewIAMPolicyClient(connPool),
 		locationsClient:  locationpb.NewLocationsClient(connPool),
@@ -443,9 +505,11 @@ func (c *pipelineGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *pipelineGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -467,11 +531,13 @@ type pipelineRESTClient struct {
 	// Users should not Close this client.
 	LROClient **lroauto.OperationsClient
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing PipelineClient
 	CallOptions **PipelineCallOptions
+
+	logger *slog.Logger
 }
 
 // NewPipelineRESTClient creates a new pipeline service rest client.
@@ -491,6 +557,7 @@ func NewPipelineRESTClient(ctx context.Context, opts ...option.ClientOption) (*P
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -510,9 +577,12 @@ func NewPipelineRESTClient(ctx context.Context, opts ...option.ClientOption) (*P
 func defaultPipelineRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://aiplatform.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://aiplatform.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://aiplatform.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://aiplatform.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -520,9 +590,11 @@ func defaultPipelineRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *pipelineRESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -540,19 +612,15 @@ func (c *pipelineRESTClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *pipelineGRPCClient) CreateTrainingPipeline(ctx context.Context, req *aiplatformpb.CreateTrainingPipelineRequest, opts ...gax.CallOption) (*aiplatformpb.TrainingPipeline, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateTrainingPipeline[0:len((*c.CallOptions).CreateTrainingPipeline):len((*c.CallOptions).CreateTrainingPipeline)], opts...)
 	var resp *aiplatformpb.TrainingPipeline
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.pipelineClient.CreateTrainingPipeline(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.pipelineClient.CreateTrainingPipeline, req, settings.GRPC, c.logger, "CreateTrainingPipeline")
 		return err
 	}, opts...)
 	if err != nil {
@@ -562,19 +630,15 @@ func (c *pipelineGRPCClient) CreateTrainingPipeline(ctx context.Context, req *ai
 }
 
 func (c *pipelineGRPCClient) GetTrainingPipeline(ctx context.Context, req *aiplatformpb.GetTrainingPipelineRequest, opts ...gax.CallOption) (*aiplatformpb.TrainingPipeline, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetTrainingPipeline[0:len((*c.CallOptions).GetTrainingPipeline):len((*c.CallOptions).GetTrainingPipeline)], opts...)
 	var resp *aiplatformpb.TrainingPipeline
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.pipelineClient.GetTrainingPipeline(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.pipelineClient.GetTrainingPipeline, req, settings.GRPC, c.logger, "GetTrainingPipeline")
 		return err
 	}, opts...)
 	if err != nil {
@@ -584,9 +648,10 @@ func (c *pipelineGRPCClient) GetTrainingPipeline(ctx context.Context, req *aipla
 }
 
 func (c *pipelineGRPCClient) ListTrainingPipelines(ctx context.Context, req *aiplatformpb.ListTrainingPipelinesRequest, opts ...gax.CallOption) *TrainingPipelineIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListTrainingPipelines[0:len((*c.CallOptions).ListTrainingPipelines):len((*c.CallOptions).ListTrainingPipelines)], opts...)
 	it := &TrainingPipelineIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListTrainingPipelinesRequest)
@@ -602,7 +667,7 @@ func (c *pipelineGRPCClient) ListTrainingPipelines(ctx context.Context, req *aip
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.pipelineClient.ListTrainingPipelines(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.pipelineClient.ListTrainingPipelines, req, settings.GRPC, c.logger, "ListTrainingPipelines")
 			return err
 		}, opts...)
 		if err != nil {
@@ -629,19 +694,15 @@ func (c *pipelineGRPCClient) ListTrainingPipelines(ctx context.Context, req *aip
 }
 
 func (c *pipelineGRPCClient) DeleteTrainingPipeline(ctx context.Context, req *aiplatformpb.DeleteTrainingPipelineRequest, opts ...gax.CallOption) (*DeleteTrainingPipelineOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteTrainingPipeline[0:len((*c.CallOptions).DeleteTrainingPipeline):len((*c.CallOptions).DeleteTrainingPipeline)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.pipelineClient.DeleteTrainingPipeline(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.pipelineClient.DeleteTrainingPipeline, req, settings.GRPC, c.logger, "DeleteTrainingPipeline")
 		return err
 	}, opts...)
 	if err != nil {
@@ -653,32 +714,29 @@ func (c *pipelineGRPCClient) DeleteTrainingPipeline(ctx context.Context, req *ai
 }
 
 func (c *pipelineGRPCClient) CancelTrainingPipeline(ctx context.Context, req *aiplatformpb.CancelTrainingPipelineRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CancelTrainingPipeline[0:len((*c.CallOptions).CancelTrainingPipeline):len((*c.CallOptions).CancelTrainingPipeline)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.pipelineClient.CancelTrainingPipeline(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.pipelineClient.CancelTrainingPipeline, req, settings.GRPC, c.logger, "CancelTrainingPipeline")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *pipelineGRPCClient) CreatePipelineJob(ctx context.Context, req *aiplatformpb.CreatePipelineJobRequest, opts ...gax.CallOption) (*aiplatformpb.PipelineJob, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreatePipelineJob[0:len((*c.CallOptions).CreatePipelineJob):len((*c.CallOptions).CreatePipelineJob)], opts...)
 	var resp *aiplatformpb.PipelineJob
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.pipelineClient.CreatePipelineJob(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.pipelineClient.CreatePipelineJob, req, settings.GRPC, c.logger, "CreatePipelineJob")
 		return err
 	}, opts...)
 	if err != nil {
@@ -688,14 +746,15 @@ func (c *pipelineGRPCClient) CreatePipelineJob(ctx context.Context, req *aiplatf
 }
 
 func (c *pipelineGRPCClient) GetPipelineJob(ctx context.Context, req *aiplatformpb.GetPipelineJobRequest, opts ...gax.CallOption) (*aiplatformpb.PipelineJob, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetPipelineJob[0:len((*c.CallOptions).GetPipelineJob):len((*c.CallOptions).GetPipelineJob)], opts...)
 	var resp *aiplatformpb.PipelineJob
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.pipelineClient.GetPipelineJob(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.pipelineClient.GetPipelineJob, req, settings.GRPC, c.logger, "GetPipelineJob")
 		return err
 	}, opts...)
 	if err != nil {
@@ -705,9 +764,10 @@ func (c *pipelineGRPCClient) GetPipelineJob(ctx context.Context, req *aiplatform
 }
 
 func (c *pipelineGRPCClient) ListPipelineJobs(ctx context.Context, req *aiplatformpb.ListPipelineJobsRequest, opts ...gax.CallOption) *PipelineJobIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListPipelineJobs[0:len((*c.CallOptions).ListPipelineJobs):len((*c.CallOptions).ListPipelineJobs)], opts...)
 	it := &PipelineJobIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListPipelineJobsRequest)
@@ -723,7 +783,7 @@ func (c *pipelineGRPCClient) ListPipelineJobs(ctx context.Context, req *aiplatfo
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.pipelineClient.ListPipelineJobs(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.pipelineClient.ListPipelineJobs, req, settings.GRPC, c.logger, "ListPipelineJobs")
 			return err
 		}, opts...)
 		if err != nil {
@@ -750,14 +810,15 @@ func (c *pipelineGRPCClient) ListPipelineJobs(ctx context.Context, req *aiplatfo
 }
 
 func (c *pipelineGRPCClient) DeletePipelineJob(ctx context.Context, req *aiplatformpb.DeletePipelineJobRequest, opts ...gax.CallOption) (*DeletePipelineJobOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeletePipelineJob[0:len((*c.CallOptions).DeletePipelineJob):len((*c.CallOptions).DeletePipelineJob)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.pipelineClient.DeletePipelineJob(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.pipelineClient.DeletePipelineJob, req, settings.GRPC, c.logger, "DeletePipelineJob")
 		return err
 	}, opts...)
 	if err != nil {
@@ -768,28 +829,70 @@ func (c *pipelineGRPCClient) DeletePipelineJob(ctx context.Context, req *aiplatf
 	}, nil
 }
 
-func (c *pipelineGRPCClient) CancelPipelineJob(ctx context.Context, req *aiplatformpb.CancelPipelineJobRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+func (c *pipelineGRPCClient) BatchDeletePipelineJobs(ctx context.Context, req *aiplatformpb.BatchDeletePipelineJobsRequest, opts ...gax.CallOption) (*BatchDeletePipelineJobsOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).BatchDeletePipelineJobs[0:len((*c.CallOptions).BatchDeletePipelineJobs):len((*c.CallOptions).BatchDeletePipelineJobs)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.pipelineClient.BatchDeletePipelineJobs, req, settings.GRPC, c.logger, "BatchDeletePipelineJobs")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &BatchDeletePipelineJobsOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *pipelineGRPCClient) CancelPipelineJob(ctx context.Context, req *aiplatformpb.CancelPipelineJobRequest, opts ...gax.CallOption) error {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CancelPipelineJob[0:len((*c.CallOptions).CancelPipelineJob):len((*c.CallOptions).CancelPipelineJob)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.pipelineClient.CancelPipelineJob(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.pipelineClient.CancelPipelineJob, req, settings.GRPC, c.logger, "CancelPipelineJob")
 		return err
 	}, opts...)
 	return err
 }
 
-func (c *pipelineGRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+func (c *pipelineGRPCClient) BatchCancelPipelineJobs(ctx context.Context, req *aiplatformpb.BatchCancelPipelineJobsRequest, opts ...gax.CallOption) (*BatchCancelPipelineJobsOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).BatchCancelPipelineJobs[0:len((*c.CallOptions).BatchCancelPipelineJobs):len((*c.CallOptions).BatchCancelPipelineJobs)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.pipelineClient.BatchCancelPipelineJobs, req, settings.GRPC, c.logger, "BatchCancelPipelineJobs")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &BatchCancelPipelineJobsOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *pipelineGRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
 	var resp *locationpb.Location
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.locationsClient.GetLocation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.locationsClient.GetLocation, req, settings.GRPC, c.logger, "GetLocation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -799,9 +902,10 @@ func (c *pipelineGRPCClient) GetLocation(ctx context.Context, req *locationpb.Ge
 }
 
 func (c *pipelineGRPCClient) ListLocations(ctx context.Context, req *locationpb.ListLocationsRequest, opts ...gax.CallOption) *LocationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListLocations[0:len((*c.CallOptions).ListLocations):len((*c.CallOptions).ListLocations)], opts...)
 	it := &LocationIterator{}
 	req = proto.Clone(req).(*locationpb.ListLocationsRequest)
@@ -817,7 +921,7 @@ func (c *pipelineGRPCClient) ListLocations(ctx context.Context, req *locationpb.
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.locationsClient.ListLocations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.locationsClient.ListLocations, req, settings.GRPC, c.logger, "ListLocations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -844,14 +948,15 @@ func (c *pipelineGRPCClient) ListLocations(ctx context.Context, req *locationpb.
 }
 
 func (c *pipelineGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.GetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.GetIamPolicy, req, settings.GRPC, c.logger, "GetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -861,14 +966,15 @@ func (c *pipelineGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIam
 }
 
 func (c *pipelineGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.SetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.SetIamPolicy, req, settings.GRPC, c.logger, "SetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -878,14 +984,15 @@ func (c *pipelineGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIam
 }
 
 func (c *pipelineGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	var resp *iampb.TestIamPermissionsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.TestIamPermissions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.TestIamPermissions, req, settings.GRPC, c.logger, "TestIamPermissions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -895,40 +1002,43 @@ func (c *pipelineGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.
 }
 
 func (c *pipelineGRPCClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CancelOperation[0:len((*c.CallOptions).CancelOperation):len((*c.CallOptions).CancelOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.CancelOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.CancelOperation, req, settings.GRPC, c.logger, "CancelOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *pipelineGRPCClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteOperation[0:len((*c.CallOptions).DeleteOperation):len((*c.CallOptions).DeleteOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.DeleteOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.DeleteOperation, req, settings.GRPC, c.logger, "DeleteOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *pipelineGRPCClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.operationsClient.GetOperation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.operationsClient.GetOperation, req, settings.GRPC, c.logger, "GetOperation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -938,9 +1048,10 @@ func (c *pipelineGRPCClient) GetOperation(ctx context.Context, req *longrunningp
 }
 
 func (c *pipelineGRPCClient) ListOperations(ctx context.Context, req *longrunningpb.ListOperationsRequest, opts ...gax.CallOption) *OperationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListOperations[0:len((*c.CallOptions).ListOperations):len((*c.CallOptions).ListOperations)], opts...)
 	it := &OperationIterator{}
 	req = proto.Clone(req).(*longrunningpb.ListOperationsRequest)
@@ -956,7 +1067,7 @@ func (c *pipelineGRPCClient) ListOperations(ctx context.Context, req *longrunnin
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.operationsClient.ListOperations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.operationsClient.ListOperations, req, settings.GRPC, c.logger, "ListOperations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -983,14 +1094,15 @@ func (c *pipelineGRPCClient) ListOperations(ctx context.Context, req *longrunnin
 }
 
 func (c *pipelineGRPCClient) WaitOperation(ctx context.Context, req *longrunningpb.WaitOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).WaitOperation[0:len((*c.CallOptions).WaitOperation):len((*c.CallOptions).WaitOperation)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.operationsClient.WaitOperation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.operationsClient.WaitOperation, req, settings.GRPC, c.logger, "WaitOperation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1015,10 +1127,17 @@ func (c *pipelineRESTClient) CreateTrainingPipeline(ctx context.Context, req *ai
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/trainingPipelines", req.GetParent())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).CreateTrainingPipeline[0:len((*c.CallOptions).CreateTrainingPipeline):len((*c.CallOptions).CreateTrainingPipeline)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.TrainingPipeline{}
@@ -1033,23 +1152,13 @@ func (c *pipelineRESTClient) CreateTrainingPipeline(ctx context.Context, req *ai
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateTrainingPipeline")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1068,10 +1177,17 @@ func (c *pipelineRESTClient) GetTrainingPipeline(ctx context.Context, req *aipla
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetTrainingPipeline[0:len((*c.CallOptions).GetTrainingPipeline):len((*c.CallOptions).GetTrainingPipeline)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.TrainingPipeline{}
@@ -1086,23 +1202,13 @@ func (c *pipelineRESTClient) GetTrainingPipeline(ctx context.Context, req *aipla
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetTrainingPipeline")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1135,6 +1241,7 @@ func (c *pipelineRESTClient) ListTrainingPipelines(ctx context.Context, req *aip
 		baseUrl.Path += fmt.Sprintf("/v1beta1/%v/trainingPipelines", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -1145,17 +1252,18 @@ func (c *pipelineRESTClient) ListTrainingPipelines(ctx context.Context, req *aip
 			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
 		}
 		if req.GetReadMask() != nil {
-			readMask, err := protojson.Marshal(req.GetReadMask())
+			field, err := protojson.Marshal(req.GetReadMask())
 			if err != nil {
 				return nil, "", err
 			}
-			params.Add("readMask", string(readMask))
+			params.Add("readMask", string(field[1:len(field)-1]))
 		}
 
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -1166,23 +1274,12 @@ func (c *pipelineRESTClient) ListTrainingPipelines(ctx context.Context, req *aip
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListTrainingPipelines")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1218,10 +1315,17 @@ func (c *pipelineRESTClient) DeleteTrainingPipeline(ctx context.Context, req *ai
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1235,23 +1339,12 @@ func (c *pipelineRESTClient) DeleteTrainingPipeline(ctx context.Context, req *ai
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteTrainingPipeline")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1270,13 +1363,17 @@ func (c *pipelineRESTClient) DeleteTrainingPipeline(ctx context.Context, req *ai
 // CancelTrainingPipeline cancels a TrainingPipeline.
 // Starts asynchronous cancellation on the TrainingPipeline. The server
 // makes a best effort to cancel the pipeline, but success is not
-// guaranteed. Clients can use PipelineService.GetTrainingPipeline or
-// other methods to check whether the cancellation succeeded or whether the
+// guaranteed. Clients can use
+// PipelineService.GetTrainingPipeline
+// or other methods to check whether the cancellation succeeded or whether the
 // pipeline completed despite cancellation. On successful cancellation,
 // the TrainingPipeline is not deleted; instead it becomes a pipeline with
-// a TrainingPipeline.error value with a google.rpc.Status.code of 1,
-// corresponding to Code.CANCELLED, and TrainingPipeline.state is set to
-// CANCELLED.
+// a
+// TrainingPipeline.error
+// value with a google.rpc.Status.code of 1,
+// corresponding to Code.CANCELLED, and
+// TrainingPipeline.state
+// is set to CANCELLED.
 func (c *pipelineRESTClient) CancelTrainingPipeline(ctx context.Context, req *aiplatformpb.CancelTrainingPipelineRequest, opts ...gax.CallOption) error {
 	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
 	jsonReq, err := m.Marshal(req)
@@ -1290,10 +1387,17 @@ func (c *pipelineRESTClient) CancelTrainingPipeline(ctx context.Context, req *ai
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:cancel", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -1305,15 +1409,8 @@ func (c *pipelineRESTClient) CancelTrainingPipeline(ctx context.Context, req *ai
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CancelTrainingPipeline")
+		return err
 	}, opts...)
 }
 
@@ -1333,6 +1430,7 @@ func (c *pipelineRESTClient) CreatePipelineJob(ctx context.Context, req *aiplatf
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/pipelineJobs", req.GetParent())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetPipelineJobId() != "" {
 		params.Add("pipelineJobId", fmt.Sprintf("%v", req.GetPipelineJobId()))
 	}
@@ -1340,9 +1438,11 @@ func (c *pipelineRESTClient) CreatePipelineJob(ctx context.Context, req *aiplatf
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).CreatePipelineJob[0:len((*c.CallOptions).CreatePipelineJob):len((*c.CallOptions).CreatePipelineJob)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.PipelineJob{}
@@ -1357,23 +1457,13 @@ func (c *pipelineRESTClient) CreatePipelineJob(ctx context.Context, req *aiplatf
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreatePipelineJob")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1392,10 +1482,17 @@ func (c *pipelineRESTClient) GetPipelineJob(ctx context.Context, req *aiplatform
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetPipelineJob[0:len((*c.CallOptions).GetPipelineJob):len((*c.CallOptions).GetPipelineJob)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.PipelineJob{}
@@ -1410,23 +1507,13 @@ func (c *pipelineRESTClient) GetPipelineJob(ctx context.Context, req *aiplatform
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetPipelineJob")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1459,6 +1546,7 @@ func (c *pipelineRESTClient) ListPipelineJobs(ctx context.Context, req *aiplatfo
 		baseUrl.Path += fmt.Sprintf("/v1beta1/%v/pipelineJobs", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -1472,17 +1560,18 @@ func (c *pipelineRESTClient) ListPipelineJobs(ctx context.Context, req *aiplatfo
 			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
 		}
 		if req.GetReadMask() != nil {
-			readMask, err := protojson.Marshal(req.GetReadMask())
+			field, err := protojson.Marshal(req.GetReadMask())
 			if err != nil {
 				return nil, "", err
 			}
-			params.Add("readMask", string(readMask))
+			params.Add("readMask", string(field[1:len(field)-1]))
 		}
 
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -1493,23 +1582,12 @@ func (c *pipelineRESTClient) ListPipelineJobs(ctx context.Context, req *aiplatfo
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListPipelineJobs")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1545,10 +1623,17 @@ func (c *pipelineRESTClient) DeletePipelineJob(ctx context.Context, req *aiplatf
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1562,23 +1647,12 @@ func (c *pipelineRESTClient) DeletePipelineJob(ctx context.Context, req *aiplatf
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeletePipelineJob")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1594,16 +1668,80 @@ func (c *pipelineRESTClient) DeletePipelineJob(ctx context.Context, req *aiplatf
 	}, nil
 }
 
+// BatchDeletePipelineJobs batch deletes PipelineJobs
+// The Operation is atomic. If it fails, none of the PipelineJobs are deleted.
+// If it succeeds, all of the PipelineJobs are deleted.
+func (c *pipelineRESTClient) BatchDeletePipelineJobs(ctx context.Context, req *aiplatformpb.BatchDeletePipelineJobsRequest, opts ...gax.CallOption) (*BatchDeletePipelineJobsOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/pipelineJobs:batchDelete", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "BatchDeletePipelineJobs")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/ui/%s", resp.GetName())
+	return &BatchDeletePipelineJobsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
 // CancelPipelineJob cancels a PipelineJob.
 // Starts asynchronous cancellation on the PipelineJob. The server
 // makes a best effort to cancel the pipeline, but success is not
-// guaranteed. Clients can use PipelineService.GetPipelineJob or
-// other methods to check whether the cancellation succeeded or whether the
+// guaranteed. Clients can use
+// PipelineService.GetPipelineJob
+// or other methods to check whether the cancellation succeeded or whether the
 // pipeline completed despite cancellation. On successful cancellation,
 // the PipelineJob is not deleted; instead it becomes a pipeline with
-// a PipelineJob.error value with a google.rpc.Status.code of 1,
-// corresponding to Code.CANCELLED, and PipelineJob.state is set to
-// CANCELLED.
+// a PipelineJob.error
+// value with a google.rpc.Status.code of 1,
+// corresponding to Code.CANCELLED, and
+// PipelineJob.state is
+// set to CANCELLED.
 func (c *pipelineRESTClient) CancelPipelineJob(ctx context.Context, req *aiplatformpb.CancelPipelineJobRequest, opts ...gax.CallOption) error {
 	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
 	jsonReq, err := m.Marshal(req)
@@ -1617,10 +1755,17 @@ func (c *pipelineRESTClient) CancelPipelineJob(ctx context.Context, req *aiplatf
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:cancel", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -1632,16 +1777,74 @@ func (c *pipelineRESTClient) CancelPipelineJob(ctx context.Context, req *aiplatf
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CancelPipelineJob")
+		return err
+	}, opts...)
+}
+
+// BatchCancelPipelineJobs batch cancel PipelineJobs.
+// Firstly the server will check if all the jobs are in non-terminal states,
+// and skip the jobs that are already terminated.
+// If the operation failed, none of the pipeline jobs are cancelled.
+// The server will poll the states of all the pipeline jobs periodically
+// to check the cancellation status.
+// This operation will return an LRO.
+func (c *pipelineRESTClient) BatchCancelPipelineJobs(ctx context.Context, req *aiplatformpb.BatchCancelPipelineJobsRequest, opts ...gax.CallOption) (*BatchCancelPipelineJobsOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/pipelineJobs:batchCancel", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
 
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "BatchCancelPipelineJobs")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
 	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/ui/%s", resp.GetName())
+	return &BatchCancelPipelineJobsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
 }
 
 // GetLocation gets information about a location.
@@ -1652,10 +1855,17 @@ func (c *pipelineRESTClient) GetLocation(ctx context.Context, req *locationpb.Ge
 	}
 	baseUrl.Path += fmt.Sprintf("/ui/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &locationpb.Location{}
@@ -1670,23 +1880,13 @@ func (c *pipelineRESTClient) GetLocation(ctx context.Context, req *locationpb.Ge
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetLocation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1719,6 +1919,7 @@ func (c *pipelineRESTClient) ListLocations(ctx context.Context, req *locationpb.
 		baseUrl.Path += fmt.Sprintf("/ui/%v/locations", req.GetName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -1732,7 +1933,8 @@ func (c *pipelineRESTClient) ListLocations(ctx context.Context, req *locationpb.
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -1743,23 +1945,12 @@ func (c *pipelineRESTClient) ListLocations(ctx context.Context, req *locationpb.
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListLocations")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1802,10 +1993,17 @@ func (c *pipelineRESTClient) GetIamPolicy(ctx context.Context, req *iampb.GetIam
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:getIamPolicy", req.GetResource())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.Policy{}
@@ -1820,23 +2018,13 @@ func (c *pipelineRESTClient) GetIamPolicy(ctx context.Context, req *iampb.GetIam
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "GetIamPolicy")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1865,10 +2053,17 @@ func (c *pipelineRESTClient) SetIamPolicy(ctx context.Context, req *iampb.SetIam
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:setIamPolicy", req.GetResource())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.Policy{}
@@ -1883,23 +2078,13 @@ func (c *pipelineRESTClient) SetIamPolicy(ctx context.Context, req *iampb.SetIam
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SetIamPolicy")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1930,10 +2115,17 @@ func (c *pipelineRESTClient) TestIamPermissions(ctx context.Context, req *iampb.
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:testIamPermissions", req.GetResource())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.TestIamPermissionsResponse{}
@@ -1948,23 +2140,13 @@ func (c *pipelineRESTClient) TestIamPermissions(ctx context.Context, req *iampb.
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "TestIamPermissions")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1983,10 +2165,17 @@ func (c *pipelineRESTClient) CancelOperation(ctx context.Context, req *longrunni
 	}
 	baseUrl.Path += fmt.Sprintf("/ui/%v:cancel", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -1998,15 +2187,8 @@ func (c *pipelineRESTClient) CancelOperation(ctx context.Context, req *longrunni
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "CancelOperation")
+		return err
 	}, opts...)
 }
 
@@ -2018,10 +2200,17 @@ func (c *pipelineRESTClient) DeleteOperation(ctx context.Context, req *longrunni
 	}
 	baseUrl.Path += fmt.Sprintf("/ui/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -2033,15 +2222,8 @@ func (c *pipelineRESTClient) DeleteOperation(ctx context.Context, req *longrunni
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteOperation")
+		return err
 	}, opts...)
 }
 
@@ -2053,10 +2235,17 @@ func (c *pipelineRESTClient) GetOperation(ctx context.Context, req *longrunningp
 	}
 	baseUrl.Path += fmt.Sprintf("/ui/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
@@ -2071,23 +2260,13 @@ func (c *pipelineRESTClient) GetOperation(ctx context.Context, req *longrunningp
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetOperation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2120,6 +2299,7 @@ func (c *pipelineRESTClient) ListOperations(ctx context.Context, req *longrunnin
 		baseUrl.Path += fmt.Sprintf("/ui/%v/operations", req.GetName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -2133,7 +2313,8 @@ func (c *pipelineRESTClient) ListOperations(ctx context.Context, req *longrunnin
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -2144,23 +2325,12 @@ func (c *pipelineRESTClient) ListOperations(ctx context.Context, req *longrunnin
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListOperations")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -2197,20 +2367,23 @@ func (c *pipelineRESTClient) WaitOperation(ctx context.Context, req *longrunning
 	baseUrl.Path += fmt.Sprintf("/ui/%v:wait", req.GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetTimeout() != nil {
-		timeout, err := protojson.Marshal(req.GetTimeout())
+		field, err := protojson.Marshal(req.GetTimeout())
 		if err != nil {
 			return nil, err
 		}
-		params.Add("timeout", string(timeout))
+		params.Add("timeout", string(field[1:len(field)-1]))
 	}
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).WaitOperation[0:len((*c.CallOptions).WaitOperation):len((*c.CallOptions).WaitOperation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
@@ -2225,23 +2398,13 @@ func (c *pipelineRESTClient) WaitOperation(ctx context.Context, req *longrunning
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "WaitOperation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2252,10 +2415,40 @@ func (c *pipelineRESTClient) WaitOperation(ctx context.Context, req *longrunning
 	return resp, nil
 }
 
-// DeletePipelineJobOperation manages a long-running operation from DeletePipelineJob.
-type DeletePipelineJobOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
+// BatchCancelPipelineJobsOperation returns a new BatchCancelPipelineJobsOperation from a given name.
+// The name must be that of a previously created BatchCancelPipelineJobsOperation, possibly from a different process.
+func (c *pipelineGRPCClient) BatchCancelPipelineJobsOperation(name string) *BatchCancelPipelineJobsOperation {
+	return &BatchCancelPipelineJobsOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+	}
+}
+
+// BatchCancelPipelineJobsOperation returns a new BatchCancelPipelineJobsOperation from a given name.
+// The name must be that of a previously created BatchCancelPipelineJobsOperation, possibly from a different process.
+func (c *pipelineRESTClient) BatchCancelPipelineJobsOperation(name string) *BatchCancelPipelineJobsOperation {
+	override := fmt.Sprintf("/ui/%s", name)
+	return &BatchCancelPipelineJobsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
+	}
+}
+
+// BatchDeletePipelineJobsOperation returns a new BatchDeletePipelineJobsOperation from a given name.
+// The name must be that of a previously created BatchDeletePipelineJobsOperation, possibly from a different process.
+func (c *pipelineGRPCClient) BatchDeletePipelineJobsOperation(name string) *BatchDeletePipelineJobsOperation {
+	return &BatchDeletePipelineJobsOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+	}
+}
+
+// BatchDeletePipelineJobsOperation returns a new BatchDeletePipelineJobsOperation from a given name.
+// The name must be that of a previously created BatchDeletePipelineJobsOperation, possibly from a different process.
+func (c *pipelineRESTClient) BatchDeletePipelineJobsOperation(name string) *BatchDeletePipelineJobsOperation {
+	override := fmt.Sprintf("/ui/%s", name)
+	return &BatchDeletePipelineJobsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
+	}
 }
 
 // DeletePipelineJobOperation returns a new DeletePipelineJobOperation from a given name.
@@ -2276,59 +2469,6 @@ func (c *pipelineRESTClient) DeletePipelineJobOperation(name string) *DeletePipe
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeletePipelineJobOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeletePipelineJobOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeletePipelineJobOperation) Metadata() (*aiplatformpb.DeleteOperationMetadata, error) {
-	var meta aiplatformpb.DeleteOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeletePipelineJobOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeletePipelineJobOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteTrainingPipelineOperation manages a long-running operation from DeleteTrainingPipeline.
-type DeleteTrainingPipelineOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // DeleteTrainingPipelineOperation returns a new DeleteTrainingPipelineOperation from a given name.
 // The name must be that of a previously created DeleteTrainingPipelineOperation, possibly from a different process.
 func (c *pipelineGRPCClient) DeleteTrainingPipelineOperation(name string) *DeleteTrainingPipelineOperation {
@@ -2345,145 +2485,4 @@ func (c *pipelineRESTClient) DeleteTrainingPipelineOperation(name string) *Delet
 		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 		pollPath: override,
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteTrainingPipelineOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteTrainingPipelineOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteTrainingPipelineOperation) Metadata() (*aiplatformpb.DeleteOperationMetadata, error) {
-	var meta aiplatformpb.DeleteOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteTrainingPipelineOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteTrainingPipelineOperation) Name() string {
-	return op.lro.Name()
-}
-
-// PipelineJobIterator manages a stream of *aiplatformpb.PipelineJob.
-type PipelineJobIterator struct {
-	items    []*aiplatformpb.PipelineJob
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.PipelineJob, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *PipelineJobIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *PipelineJobIterator) Next() (*aiplatformpb.PipelineJob, error) {
-	var item *aiplatformpb.PipelineJob
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *PipelineJobIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *PipelineJobIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// TrainingPipelineIterator manages a stream of *aiplatformpb.TrainingPipeline.
-type TrainingPipelineIterator struct {
-	items    []*aiplatformpb.TrainingPipeline
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.TrainingPipeline, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *TrainingPipelineIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *TrainingPipelineIterator) Next() (*aiplatformpb.TrainingPipeline, error) {
-	var item *aiplatformpb.TrainingPipeline
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *TrainingPipelineIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *TrainingPipelineIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
 }

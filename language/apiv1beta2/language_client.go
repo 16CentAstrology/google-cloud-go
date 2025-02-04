@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -28,14 +28,12 @@ import (
 
 	languagepb "cloud.google.com/go/language/apiv1beta2/languagepb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -48,16 +46,20 @@ type CallOptions struct {
 	AnalyzeEntitySentiment []gax.CallOption
 	AnalyzeSyntax          []gax.CallOption
 	ClassifyText           []gax.CallOption
+	ModerateText           []gax.CallOption
 	AnnotateText           []gax.CallOption
 }
 
 func defaultGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("language.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("language.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("language.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://language.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -66,6 +68,7 @@ func defaultGRPCClientOptions() []option.ClientOption {
 func defaultCallOptions() *CallOptions {
 	return &CallOptions{
 		AnalyzeSentiment: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -78,6 +81,7 @@ func defaultCallOptions() *CallOptions {
 			}),
 		},
 		AnalyzeEntities: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -90,6 +94,7 @@ func defaultCallOptions() *CallOptions {
 			}),
 		},
 		AnalyzeEntitySentiment: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -102,6 +107,7 @@ func defaultCallOptions() *CallOptions {
 			}),
 		},
 		AnalyzeSyntax: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -114,6 +120,7 @@ func defaultCallOptions() *CallOptions {
 			}),
 		},
 		ClassifyText: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -125,7 +132,9 @@ func defaultCallOptions() *CallOptions {
 				})
 			}),
 		},
+		ModerateText: []gax.CallOption{},
 		AnnotateText: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.Unavailable,
@@ -143,6 +152,7 @@ func defaultCallOptions() *CallOptions {
 func defaultRESTCallOptions() *CallOptions {
 	return &CallOptions{
 		AnalyzeSentiment: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -154,6 +164,7 @@ func defaultRESTCallOptions() *CallOptions {
 			}),
 		},
 		AnalyzeEntities: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -165,6 +176,7 @@ func defaultRESTCallOptions() *CallOptions {
 			}),
 		},
 		AnalyzeEntitySentiment: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -176,6 +188,7 @@ func defaultRESTCallOptions() *CallOptions {
 			}),
 		},
 		AnalyzeSyntax: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -187,6 +200,7 @@ func defaultRESTCallOptions() *CallOptions {
 			}),
 		},
 		ClassifyText: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -197,7 +211,9 @@ func defaultRESTCallOptions() *CallOptions {
 					http.StatusGatewayTimeout)
 			}),
 		},
+		ModerateText: []gax.CallOption{},
 		AnnotateText: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -221,6 +237,7 @@ type internalClient interface {
 	AnalyzeEntitySentiment(context.Context, *languagepb.AnalyzeEntitySentimentRequest, ...gax.CallOption) (*languagepb.AnalyzeEntitySentimentResponse, error)
 	AnalyzeSyntax(context.Context, *languagepb.AnalyzeSyntaxRequest, ...gax.CallOption) (*languagepb.AnalyzeSyntaxResponse, error)
 	ClassifyText(context.Context, *languagepb.ClassifyTextRequest, ...gax.CallOption) (*languagepb.ClassifyTextResponse, error)
+	ModerateText(context.Context, *languagepb.ModerateTextRequest, ...gax.CallOption) (*languagepb.ModerateTextResponse, error)
 	AnnotateText(context.Context, *languagepb.AnnotateTextRequest, ...gax.CallOption) (*languagepb.AnnotateTextResponse, error)
 }
 
@@ -272,8 +289,10 @@ func (c *Client) AnalyzeEntities(ctx context.Context, req *languagepb.AnalyzeEnt
 	return c.internalClient.AnalyzeEntities(ctx, req, opts...)
 }
 
-// AnalyzeEntitySentiment finds entities, similar to AnalyzeEntities in the text and analyzes
-// sentiment associated with each entity and its mentions.
+// AnalyzeEntitySentiment finds entities, similar to
+// AnalyzeEntities
+// in the text and analyzes sentiment associated with each entity and its
+// mentions.
 func (c *Client) AnalyzeEntitySentiment(ctx context.Context, req *languagepb.AnalyzeEntitySentimentRequest, opts ...gax.CallOption) (*languagepb.AnalyzeEntitySentimentResponse, error) {
 	return c.internalClient.AnalyzeEntitySentiment(ctx, req, opts...)
 }
@@ -290,6 +309,11 @@ func (c *Client) ClassifyText(ctx context.Context, req *languagepb.ClassifyTextR
 	return c.internalClient.ClassifyText(ctx, req, opts...)
 }
 
+// ModerateText moderates a document for harmful and sensitive categories.
+func (c *Client) ModerateText(ctx context.Context, req *languagepb.ModerateTextRequest, opts ...gax.CallOption) (*languagepb.ModerateTextResponse, error) {
+	return c.internalClient.ModerateText(ctx, req, opts...)
+}
+
 // AnnotateText a convenience method that provides all syntax, sentiment, entity, and
 // classification features in one call.
 func (c *Client) AnnotateText(ctx context.Context, req *languagepb.AnnotateTextRequest, opts ...gax.CallOption) (*languagepb.AnnotateTextResponse, error) {
@@ -303,9 +327,6 @@ type gRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing Client
 	CallOptions **CallOptions
 
@@ -313,7 +334,9 @@ type gRPCClient struct {
 	client languagepb.LanguageServiceClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewClient creates a new language service client based on gRPC.
@@ -331,11 +354,6 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -343,10 +361,10 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 	client := Client{CallOptions: defaultCallOptions()}
 
 	c := &gRPCClient{
-		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
-		client:           languagepb.NewLanguageServiceClient(connPool),
-		CallOptions:      &client.CallOptions,
+		connPool:    connPool,
+		client:      languagepb.NewLanguageServiceClient(connPool),
+		CallOptions: &client.CallOptions,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -367,9 +385,11 @@ func (c *gRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *gRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -386,11 +406,13 @@ type restClient struct {
 	// The http client.
 	httpClient *http.Client
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing Client
 	CallOptions **CallOptions
+
+	logger *slog.Logger
 }
 
 // NewRESTClient creates a new language service rest client.
@@ -409,6 +431,7 @@ func NewRESTClient(ctx context.Context, opts ...option.ClientOption) (*Client, e
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -418,9 +441,12 @@ func NewRESTClient(ctx context.Context, opts ...option.ClientOption) (*Client, e
 func defaultRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://language.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://language.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://language.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://language.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -428,9 +454,11 @@ func defaultRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *restClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -448,17 +476,12 @@ func (c *restClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *gRPCClient) AnalyzeSentiment(ctx context.Context, req *languagepb.AnalyzeSentimentRequest, opts ...gax.CallOption) (*languagepb.AnalyzeSentimentResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).AnalyzeSentiment[0:len((*c.CallOptions).AnalyzeSentiment):len((*c.CallOptions).AnalyzeSentiment)], opts...)
 	var resp *languagepb.AnalyzeSentimentResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.AnalyzeSentiment(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.AnalyzeSentiment, req, settings.GRPC, c.logger, "AnalyzeSentiment")
 		return err
 	}, opts...)
 	if err != nil {
@@ -468,17 +491,12 @@ func (c *gRPCClient) AnalyzeSentiment(ctx context.Context, req *languagepb.Analy
 }
 
 func (c *gRPCClient) AnalyzeEntities(ctx context.Context, req *languagepb.AnalyzeEntitiesRequest, opts ...gax.CallOption) (*languagepb.AnalyzeEntitiesResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).AnalyzeEntities[0:len((*c.CallOptions).AnalyzeEntities):len((*c.CallOptions).AnalyzeEntities)], opts...)
 	var resp *languagepb.AnalyzeEntitiesResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.AnalyzeEntities(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.AnalyzeEntities, req, settings.GRPC, c.logger, "AnalyzeEntities")
 		return err
 	}, opts...)
 	if err != nil {
@@ -488,17 +506,12 @@ func (c *gRPCClient) AnalyzeEntities(ctx context.Context, req *languagepb.Analyz
 }
 
 func (c *gRPCClient) AnalyzeEntitySentiment(ctx context.Context, req *languagepb.AnalyzeEntitySentimentRequest, opts ...gax.CallOption) (*languagepb.AnalyzeEntitySentimentResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).AnalyzeEntitySentiment[0:len((*c.CallOptions).AnalyzeEntitySentiment):len((*c.CallOptions).AnalyzeEntitySentiment)], opts...)
 	var resp *languagepb.AnalyzeEntitySentimentResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.AnalyzeEntitySentiment(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.AnalyzeEntitySentiment, req, settings.GRPC, c.logger, "AnalyzeEntitySentiment")
 		return err
 	}, opts...)
 	if err != nil {
@@ -508,17 +521,12 @@ func (c *gRPCClient) AnalyzeEntitySentiment(ctx context.Context, req *languagepb
 }
 
 func (c *gRPCClient) AnalyzeSyntax(ctx context.Context, req *languagepb.AnalyzeSyntaxRequest, opts ...gax.CallOption) (*languagepb.AnalyzeSyntaxResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).AnalyzeSyntax[0:len((*c.CallOptions).AnalyzeSyntax):len((*c.CallOptions).AnalyzeSyntax)], opts...)
 	var resp *languagepb.AnalyzeSyntaxResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.AnalyzeSyntax(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.AnalyzeSyntax, req, settings.GRPC, c.logger, "AnalyzeSyntax")
 		return err
 	}, opts...)
 	if err != nil {
@@ -528,17 +536,27 @@ func (c *gRPCClient) AnalyzeSyntax(ctx context.Context, req *languagepb.AnalyzeS
 }
 
 func (c *gRPCClient) ClassifyText(ctx context.Context, req *languagepb.ClassifyTextRequest, opts ...gax.CallOption) (*languagepb.ClassifyTextResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).ClassifyText[0:len((*c.CallOptions).ClassifyText):len((*c.CallOptions).ClassifyText)], opts...)
 	var resp *languagepb.ClassifyTextResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.ClassifyText(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.ClassifyText, req, settings.GRPC, c.logger, "ClassifyText")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) ModerateText(ctx context.Context, req *languagepb.ModerateTextRequest, opts ...gax.CallOption) (*languagepb.ModerateTextResponse, error) {
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
+	opts = append((*c.CallOptions).ModerateText[0:len((*c.CallOptions).ModerateText):len((*c.CallOptions).ModerateText)], opts...)
+	var resp *languagepb.ModerateTextResponse
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.ModerateText, req, settings.GRPC, c.logger, "ModerateText")
 		return err
 	}, opts...)
 	if err != nil {
@@ -548,17 +566,12 @@ func (c *gRPCClient) ClassifyText(ctx context.Context, req *languagepb.ClassifyT
 }
 
 func (c *gRPCClient) AnnotateText(ctx context.Context, req *languagepb.AnnotateTextRequest, opts ...gax.CallOption) (*languagepb.AnnotateTextResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).AnnotateText[0:len((*c.CallOptions).AnnotateText):len((*c.CallOptions).AnnotateText)], opts...)
 	var resp *languagepb.AnnotateTextResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.AnnotateText(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.AnnotateText, req, settings.GRPC, c.logger, "AnnotateText")
 		return err
 	}, opts...)
 	if err != nil {
@@ -581,8 +594,14 @@ func (c *restClient) AnalyzeSentiment(ctx context.Context, req *languagepb.Analy
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta2/documents:analyzeSentiment")
 
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).AnalyzeSentiment[0:len((*c.CallOptions).AnalyzeSentiment):len((*c.CallOptions).AnalyzeSentiment)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &languagepb.AnalyzeSentimentResponse{}
@@ -597,23 +616,13 @@ func (c *restClient) AnalyzeSentiment(ctx context.Context, req *languagepb.Analy
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "AnalyzeSentiment")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -640,8 +649,14 @@ func (c *restClient) AnalyzeEntities(ctx context.Context, req *languagepb.Analyz
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta2/documents:analyzeEntities")
 
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).AnalyzeEntities[0:len((*c.CallOptions).AnalyzeEntities):len((*c.CallOptions).AnalyzeEntities)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &languagepb.AnalyzeEntitiesResponse{}
@@ -656,23 +671,13 @@ func (c *restClient) AnalyzeEntities(ctx context.Context, req *languagepb.Analyz
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "AnalyzeEntities")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -683,8 +688,10 @@ func (c *restClient) AnalyzeEntities(ctx context.Context, req *languagepb.Analyz
 	return resp, nil
 }
 
-// AnalyzeEntitySentiment finds entities, similar to AnalyzeEntities in the text and analyzes
-// sentiment associated with each entity and its mentions.
+// AnalyzeEntitySentiment finds entities, similar to
+// AnalyzeEntities
+// in the text and analyzes sentiment associated with each entity and its
+// mentions.
 func (c *restClient) AnalyzeEntitySentiment(ctx context.Context, req *languagepb.AnalyzeEntitySentimentRequest, opts ...gax.CallOption) (*languagepb.AnalyzeEntitySentimentResponse, error) {
 	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
 	jsonReq, err := m.Marshal(req)
@@ -698,8 +705,14 @@ func (c *restClient) AnalyzeEntitySentiment(ctx context.Context, req *languagepb
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta2/documents:analyzeEntitySentiment")
 
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).AnalyzeEntitySentiment[0:len((*c.CallOptions).AnalyzeEntitySentiment):len((*c.CallOptions).AnalyzeEntitySentiment)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &languagepb.AnalyzeEntitySentimentResponse{}
@@ -714,23 +727,13 @@ func (c *restClient) AnalyzeEntitySentiment(ctx context.Context, req *languagepb
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "AnalyzeEntitySentiment")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -757,8 +760,14 @@ func (c *restClient) AnalyzeSyntax(ctx context.Context, req *languagepb.AnalyzeS
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta2/documents:analyzeSyntax")
 
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).AnalyzeSyntax[0:len((*c.CallOptions).AnalyzeSyntax):len((*c.CallOptions).AnalyzeSyntax)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &languagepb.AnalyzeSyntaxResponse{}
@@ -773,23 +782,13 @@ func (c *restClient) AnalyzeSyntax(ctx context.Context, req *languagepb.AnalyzeS
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "AnalyzeSyntax")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -814,8 +813,14 @@ func (c *restClient) ClassifyText(ctx context.Context, req *languagepb.ClassifyT
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta2/documents:classifyText")
 
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).ClassifyText[0:len((*c.CallOptions).ClassifyText):len((*c.CallOptions).ClassifyText)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &languagepb.ClassifyTextResponse{}
@@ -830,23 +835,66 @@ func (c *restClient) ClassifyText(ctx context.Context, req *languagepb.ClassifyT
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "ClassifyText")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ModerateText moderates a document for harmful and sensitive categories.
+func (c *restClient) ModerateText(ctx context.Context, req *languagepb.ModerateTextRequest, opts ...gax.CallOption) (*languagepb.ModerateTextResponse, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta2/documents:moderateText")
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).ModerateText[0:len((*c.CallOptions).ModerateText):len((*c.CallOptions).ModerateText)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &languagepb.ModerateTextResponse{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "ModerateText")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
 		}
 
 		return nil
@@ -872,8 +920,14 @@ func (c *restClient) AnnotateText(ctx context.Context, req *languagepb.AnnotateT
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta2/documents:annotateText")
 
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).AnnotateText[0:len((*c.CallOptions).AnnotateText):len((*c.CallOptions).AnnotateText)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &languagepb.AnnotateTextResponse{}
@@ -888,23 +942,13 @@ func (c *restClient) AnnotateText(ctx context.Context, req *languagepb.AnnotateT
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "AnnotateText")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil

@@ -1,7 +1,7 @@
 {
   "clientLibrary": {
     "name": "cloud.google.com/go/datafusion/apiv1",
-    "version": "1.5.0",
+    "version": "1.7.10",
     "language": "GO",
     "apis": [
       {
@@ -126,7 +126,7 @@
             "name": "opts"
           }
         ],
-        "resultType": "datafusionpb.Instance",
+        "resultType": "*datafusionpb.Instance",
         "client": {
           "shortName": "Client",
           "fullName": "google.cloud.datafusion.v1.Client"
@@ -190,7 +190,7 @@
       "segments": [
         {
           "start": 18,
-          "end": 60,
+          "end": 66,
           "type": "FULL"
         }
       ]
@@ -236,7 +236,7 @@
       "segments": [
         {
           "start": 18,
-          "end": 60,
+          "end": 66,
           "type": "FULL"
         }
       ]

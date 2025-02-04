@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,27 +20,25 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
 	"time"
 
 	aiplatformpb "cloud.google.com/go/aiplatform/apiv1beta1/aiplatformpb"
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/longrunning"
 	lroauto "cloud.google.com/go/longrunning/autogen"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -53,14 +51,17 @@ type ModelCallOptions struct {
 	GetModel                         []gax.CallOption
 	ListModels                       []gax.CallOption
 	ListModelVersions                []gax.CallOption
+	ListModelVersionCheckpoints      []gax.CallOption
 	UpdateModel                      []gax.CallOption
 	UpdateExplanationDataset         []gax.CallOption
 	DeleteModel                      []gax.CallOption
 	DeleteModelVersion               []gax.CallOption
 	MergeVersionAliases              []gax.CallOption
 	ExportModel                      []gax.CallOption
+	CopyModel                        []gax.CallOption
 	ImportModelEvaluation            []gax.CallOption
 	BatchImportModelEvaluationSlices []gax.CallOption
+	BatchImportEvaluatedAnnotations  []gax.CallOption
 	GetModelEvaluation               []gax.CallOption
 	ListModelEvaluations             []gax.CallOption
 	GetModelEvaluationSlice          []gax.CallOption
@@ -80,10 +81,13 @@ type ModelCallOptions struct {
 func defaultModelGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("aiplatform.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("aiplatform.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("aiplatform.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://aiplatform.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -91,63 +95,113 @@ func defaultModelGRPCClientOptions() []option.ClientOption {
 
 func defaultModelCallOptions() *ModelCallOptions {
 	return &ModelCallOptions{
-		UploadModel:                      []gax.CallOption{},
-		GetModel:                         []gax.CallOption{},
-		ListModels:                       []gax.CallOption{},
-		ListModelVersions:                []gax.CallOption{},
-		UpdateModel:                      []gax.CallOption{},
-		UpdateExplanationDataset:         []gax.CallOption{},
-		DeleteModel:                      []gax.CallOption{},
-		DeleteModelVersion:               []gax.CallOption{},
-		MergeVersionAliases:              []gax.CallOption{},
-		ExportModel:                      []gax.CallOption{},
+		UploadModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		GetModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListModels: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListModelVersions:           []gax.CallOption{},
+		ListModelVersionCheckpoints: []gax.CallOption{},
+		UpdateModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		UpdateExplanationDataset: []gax.CallOption{},
+		DeleteModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		DeleteModelVersion:  []gax.CallOption{},
+		MergeVersionAliases: []gax.CallOption{},
+		ExportModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		CopyModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
 		ImportModelEvaluation:            []gax.CallOption{},
 		BatchImportModelEvaluationSlices: []gax.CallOption{},
-		GetModelEvaluation:               []gax.CallOption{},
-		ListModelEvaluations:             []gax.CallOption{},
-		GetModelEvaluationSlice:          []gax.CallOption{},
-		ListModelEvaluationSlices:        []gax.CallOption{},
-		GetLocation:                      []gax.CallOption{},
-		ListLocations:                    []gax.CallOption{},
-		GetIamPolicy:                     []gax.CallOption{},
-		SetIamPolicy:                     []gax.CallOption{},
-		TestIamPermissions:               []gax.CallOption{},
-		CancelOperation:                  []gax.CallOption{},
-		DeleteOperation:                  []gax.CallOption{},
-		GetOperation:                     []gax.CallOption{},
-		ListOperations:                   []gax.CallOption{},
-		WaitOperation:                    []gax.CallOption{},
+		BatchImportEvaluatedAnnotations:  []gax.CallOption{},
+		GetModelEvaluation: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListModelEvaluations: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		GetModelEvaluationSlice: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListModelEvaluationSlices: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		GetLocation:        []gax.CallOption{},
+		ListLocations:      []gax.CallOption{},
+		GetIamPolicy:       []gax.CallOption{},
+		SetIamPolicy:       []gax.CallOption{},
+		TestIamPermissions: []gax.CallOption{},
+		CancelOperation:    []gax.CallOption{},
+		DeleteOperation:    []gax.CallOption{},
+		GetOperation:       []gax.CallOption{},
+		ListOperations:     []gax.CallOption{},
+		WaitOperation:      []gax.CallOption{},
 	}
 }
 
 func defaultModelRESTCallOptions() *ModelCallOptions {
 	return &ModelCallOptions{
-		UploadModel:                      []gax.CallOption{},
-		GetModel:                         []gax.CallOption{},
-		ListModels:                       []gax.CallOption{},
-		ListModelVersions:                []gax.CallOption{},
-		UpdateModel:                      []gax.CallOption{},
-		UpdateExplanationDataset:         []gax.CallOption{},
-		DeleteModel:                      []gax.CallOption{},
-		DeleteModelVersion:               []gax.CallOption{},
-		MergeVersionAliases:              []gax.CallOption{},
-		ExportModel:                      []gax.CallOption{},
+		UploadModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		GetModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListModels: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListModelVersions:           []gax.CallOption{},
+		ListModelVersionCheckpoints: []gax.CallOption{},
+		UpdateModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		UpdateExplanationDataset: []gax.CallOption{},
+		DeleteModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		DeleteModelVersion:  []gax.CallOption{},
+		MergeVersionAliases: []gax.CallOption{},
+		ExportModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		CopyModel: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
 		ImportModelEvaluation:            []gax.CallOption{},
 		BatchImportModelEvaluationSlices: []gax.CallOption{},
-		GetModelEvaluation:               []gax.CallOption{},
-		ListModelEvaluations:             []gax.CallOption{},
-		GetModelEvaluationSlice:          []gax.CallOption{},
-		ListModelEvaluationSlices:        []gax.CallOption{},
-		GetLocation:                      []gax.CallOption{},
-		ListLocations:                    []gax.CallOption{},
-		GetIamPolicy:                     []gax.CallOption{},
-		SetIamPolicy:                     []gax.CallOption{},
-		TestIamPermissions:               []gax.CallOption{},
-		CancelOperation:                  []gax.CallOption{},
-		DeleteOperation:                  []gax.CallOption{},
-		GetOperation:                     []gax.CallOption{},
-		ListOperations:                   []gax.CallOption{},
-		WaitOperation:                    []gax.CallOption{},
+		BatchImportEvaluatedAnnotations:  []gax.CallOption{},
+		GetModelEvaluation: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListModelEvaluations: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		GetModelEvaluationSlice: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		ListModelEvaluationSlices: []gax.CallOption{
+			gax.WithTimeout(5000 * time.Millisecond),
+		},
+		GetLocation:        []gax.CallOption{},
+		ListLocations:      []gax.CallOption{},
+		GetIamPolicy:       []gax.CallOption{},
+		SetIamPolicy:       []gax.CallOption{},
+		TestIamPermissions: []gax.CallOption{},
+		CancelOperation:    []gax.CallOption{},
+		DeleteOperation:    []gax.CallOption{},
+		GetOperation:       []gax.CallOption{},
+		ListOperations:     []gax.CallOption{},
+		WaitOperation:      []gax.CallOption{},
 	}
 }
 
@@ -161,6 +215,7 @@ type internalModelClient interface {
 	GetModel(context.Context, *aiplatformpb.GetModelRequest, ...gax.CallOption) (*aiplatformpb.Model, error)
 	ListModels(context.Context, *aiplatformpb.ListModelsRequest, ...gax.CallOption) *ModelIterator
 	ListModelVersions(context.Context, *aiplatformpb.ListModelVersionsRequest, ...gax.CallOption) *ModelIterator
+	ListModelVersionCheckpoints(context.Context, *aiplatformpb.ListModelVersionCheckpointsRequest, ...gax.CallOption) *ModelVersionCheckpointIterator
 	UpdateModel(context.Context, *aiplatformpb.UpdateModelRequest, ...gax.CallOption) (*aiplatformpb.Model, error)
 	UpdateExplanationDataset(context.Context, *aiplatformpb.UpdateExplanationDatasetRequest, ...gax.CallOption) (*UpdateExplanationDatasetOperation, error)
 	UpdateExplanationDatasetOperation(name string) *UpdateExplanationDatasetOperation
@@ -171,8 +226,11 @@ type internalModelClient interface {
 	MergeVersionAliases(context.Context, *aiplatformpb.MergeVersionAliasesRequest, ...gax.CallOption) (*aiplatformpb.Model, error)
 	ExportModel(context.Context, *aiplatformpb.ExportModelRequest, ...gax.CallOption) (*ExportModelOperation, error)
 	ExportModelOperation(name string) *ExportModelOperation
+	CopyModel(context.Context, *aiplatformpb.CopyModelRequest, ...gax.CallOption) (*CopyModelOperation, error)
+	CopyModelOperation(name string) *CopyModelOperation
 	ImportModelEvaluation(context.Context, *aiplatformpb.ImportModelEvaluationRequest, ...gax.CallOption) (*aiplatformpb.ModelEvaluation, error)
 	BatchImportModelEvaluationSlices(context.Context, *aiplatformpb.BatchImportModelEvaluationSlicesRequest, ...gax.CallOption) (*aiplatformpb.BatchImportModelEvaluationSlicesResponse, error)
+	BatchImportEvaluatedAnnotations(context.Context, *aiplatformpb.BatchImportEvaluatedAnnotationsRequest, ...gax.CallOption) (*aiplatformpb.BatchImportEvaluatedAnnotationsResponse, error)
 	GetModelEvaluation(context.Context, *aiplatformpb.GetModelEvaluationRequest, ...gax.CallOption) (*aiplatformpb.ModelEvaluation, error)
 	ListModelEvaluations(context.Context, *aiplatformpb.ListModelEvaluationsRequest, ...gax.CallOption) *ModelEvaluationIterator
 	GetModelEvaluationSlice(context.Context, *aiplatformpb.GetModelEvaluationSliceRequest, ...gax.CallOption) (*aiplatformpb.ModelEvaluationSlice, error)
@@ -255,6 +313,11 @@ func (c *ModelClient) ListModelVersions(ctx context.Context, req *aiplatformpb.L
 	return c.internalClient.ListModelVersions(ctx, req, opts...)
 }
 
+// ListModelVersionCheckpoints lists checkpoints of the specified model version.
+func (c *ModelClient) ListModelVersionCheckpoints(ctx context.Context, req *aiplatformpb.ListModelVersionCheckpointsRequest, opts ...gax.CallOption) *ModelVersionCheckpointIterator {
+	return c.internalClient.ListModelVersionCheckpoints(ctx, req, opts...)
+}
+
 // UpdateModel updates a Model.
 func (c *ModelClient) UpdateModel(ctx context.Context, req *aiplatformpb.UpdateModelRequest, opts ...gax.CallOption) (*aiplatformpb.Model, error) {
 	return c.internalClient.UpdateModel(ctx, req, opts...)
@@ -273,9 +336,12 @@ func (c *ModelClient) UpdateExplanationDatasetOperation(name string) *UpdateExpl
 
 // DeleteModel deletes a Model.
 //
-// A model cannot be deleted if any Endpoint resource has a
-// DeployedModel based on the model in its
-// deployed_models field.
+// A model cannot be deleted if any
+// Endpoint resource has a
+// DeployedModel based on the
+// model in its
+// deployed_models
+// field.
 func (c *ModelClient) DeleteModel(ctx context.Context, req *aiplatformpb.DeleteModelRequest, opts ...gax.CallOption) (*DeleteModelOperation, error) {
 	return c.internalClient.DeleteModel(ctx, req, opts...)
 }
@@ -288,9 +354,11 @@ func (c *ModelClient) DeleteModelOperation(name string) *DeleteModelOperation {
 
 // DeleteModelVersion deletes a Model version.
 //
-// Model version can only be deleted if there are no DeployedModels
-// created from it. Deleting the only version in the Model is not allowed. Use
-// DeleteModel for deleting the Model instead.
+// Model version can only be deleted if there are no
+// DeployedModels created
+// from it. Deleting the only version in the Model is not allowed. Use
+// DeleteModel for
+// deleting the Model instead.
 func (c *ModelClient) DeleteModelVersion(ctx context.Context, req *aiplatformpb.DeleteModelVersionRequest, opts ...gax.CallOption) (*DeleteModelVersionOperation, error) {
 	return c.internalClient.DeleteModelVersion(ctx, req, opts...)
 }
@@ -308,7 +376,8 @@ func (c *ModelClient) MergeVersionAliases(ctx context.Context, req *aiplatformpb
 
 // ExportModel exports a trained, exportable Model to a location specified by the
 // user. A Model is considered to be exportable if it has at least one
-// [supported export format][google.cloud.aiplatform.v1beta1.Model.supported_export_formats].
+// [supported export
+// format][google.cloud.aiplatform.v1beta1.Model.supported_export_formats].
 func (c *ModelClient) ExportModel(ctx context.Context, req *aiplatformpb.ExportModelRequest, opts ...gax.CallOption) (*ExportModelOperation, error) {
 	return c.internalClient.ExportModel(ctx, req, opts...)
 }
@@ -319,6 +388,22 @@ func (c *ModelClient) ExportModelOperation(name string) *ExportModelOperation {
 	return c.internalClient.ExportModelOperation(name)
 }
 
+// CopyModel copies an already existing Vertex AI Model into the specified Location.
+// The source Model must exist in the same Project.
+// When copying custom Models, the users themselves are responsible for
+// Model.metadata content to
+// be region-agnostic, as well as making sure that any resources (e.g. files)
+// it depends on remain accessible.
+func (c *ModelClient) CopyModel(ctx context.Context, req *aiplatformpb.CopyModelRequest, opts ...gax.CallOption) (*CopyModelOperation, error) {
+	return c.internalClient.CopyModel(ctx, req, opts...)
+}
+
+// CopyModelOperation returns a new CopyModelOperation from a given name.
+// The name must be that of a previously created CopyModelOperation, possibly from a different process.
+func (c *ModelClient) CopyModelOperation(name string) *CopyModelOperation {
+	return c.internalClient.CopyModelOperation(name)
+}
+
 // ImportModelEvaluation imports an externally generated ModelEvaluation.
 func (c *ModelClient) ImportModelEvaluation(ctx context.Context, req *aiplatformpb.ImportModelEvaluationRequest, opts ...gax.CallOption) (*aiplatformpb.ModelEvaluation, error) {
 	return c.internalClient.ImportModelEvaluation(ctx, req, opts...)
@@ -327,6 +412,11 @@ func (c *ModelClient) ImportModelEvaluation(ctx context.Context, req *aiplatform
 // BatchImportModelEvaluationSlices imports a list of externally generated ModelEvaluationSlice.
 func (c *ModelClient) BatchImportModelEvaluationSlices(ctx context.Context, req *aiplatformpb.BatchImportModelEvaluationSlicesRequest, opts ...gax.CallOption) (*aiplatformpb.BatchImportModelEvaluationSlicesResponse, error) {
 	return c.internalClient.BatchImportModelEvaluationSlices(ctx, req, opts...)
+}
+
+// BatchImportEvaluatedAnnotations imports a list of externally generated EvaluatedAnnotations.
+func (c *ModelClient) BatchImportEvaluatedAnnotations(ctx context.Context, req *aiplatformpb.BatchImportEvaluatedAnnotationsRequest, opts ...gax.CallOption) (*aiplatformpb.BatchImportEvaluatedAnnotationsResponse, error) {
+	return c.internalClient.BatchImportEvaluatedAnnotations(ctx, req, opts...)
 }
 
 // GetModelEvaluation gets a ModelEvaluation.
@@ -417,9 +507,6 @@ type modelGRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing ModelClient
 	CallOptions **ModelCallOptions
 
@@ -438,7 +525,9 @@ type modelGRPCClient struct {
 	locationsClient locationpb.LocationsClient
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewModelClient creates a new model service client based on gRPC.
@@ -455,11 +544,6 @@ func NewModelClient(ctx context.Context, opts ...option.ClientOption) (*ModelCli
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -468,9 +552,9 @@ func NewModelClient(ctx context.Context, opts ...option.ClientOption) (*ModelCli
 
 	c := &modelGRPCClient{
 		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
 		modelClient:      aiplatformpb.NewModelServiceClient(connPool),
 		CallOptions:      &client.CallOptions,
+		logger:           internaloption.GetLogger(opts),
 		operationsClient: longrunningpb.NewOperationsClient(connPool),
 		iamPolicyClient:  iampb.NewIAMPolicyClient(connPool),
 		locationsClient:  locationpb.NewLocationsClient(connPool),
@@ -505,9 +589,11 @@ func (c *modelGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *modelGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -529,11 +615,13 @@ type modelRESTClient struct {
 	// Users should not Close this client.
 	LROClient **lroauto.OperationsClient
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing ModelClient
 	CallOptions **ModelCallOptions
+
+	logger *slog.Logger
 }
 
 // NewModelRESTClient creates a new model service rest client.
@@ -551,6 +639,7 @@ func NewModelRESTClient(ctx context.Context, opts ...option.ClientOption) (*Mode
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -570,9 +659,12 @@ func NewModelRESTClient(ctx context.Context, opts ...option.ClientOption) (*Mode
 func defaultModelRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://aiplatform.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://aiplatform.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://aiplatform.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://aiplatform.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -580,9 +672,11 @@ func defaultModelRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *modelRESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -600,19 +694,15 @@ func (c *modelRESTClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *modelGRPCClient) UploadModel(ctx context.Context, req *aiplatformpb.UploadModelRequest, opts ...gax.CallOption) (*UploadModelOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UploadModel[0:len((*c.CallOptions).UploadModel):len((*c.CallOptions).UploadModel)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.UploadModel(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.UploadModel, req, settings.GRPC, c.logger, "UploadModel")
 		return err
 	}, opts...)
 	if err != nil {
@@ -624,19 +714,15 @@ func (c *modelGRPCClient) UploadModel(ctx context.Context, req *aiplatformpb.Upl
 }
 
 func (c *modelGRPCClient) GetModel(ctx context.Context, req *aiplatformpb.GetModelRequest, opts ...gax.CallOption) (*aiplatformpb.Model, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetModel[0:len((*c.CallOptions).GetModel):len((*c.CallOptions).GetModel)], opts...)
 	var resp *aiplatformpb.Model
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.GetModel(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.GetModel, req, settings.GRPC, c.logger, "GetModel")
 		return err
 	}, opts...)
 	if err != nil {
@@ -646,9 +732,10 @@ func (c *modelGRPCClient) GetModel(ctx context.Context, req *aiplatformpb.GetMod
 }
 
 func (c *modelGRPCClient) ListModels(ctx context.Context, req *aiplatformpb.ListModelsRequest, opts ...gax.CallOption) *ModelIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListModels[0:len((*c.CallOptions).ListModels):len((*c.CallOptions).ListModels)], opts...)
 	it := &ModelIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListModelsRequest)
@@ -664,7 +751,7 @@ func (c *modelGRPCClient) ListModels(ctx context.Context, req *aiplatformpb.List
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.modelClient.ListModels(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.modelClient.ListModels, req, settings.GRPC, c.logger, "ListModels")
 			return err
 		}, opts...)
 		if err != nil {
@@ -691,9 +778,10 @@ func (c *modelGRPCClient) ListModels(ctx context.Context, req *aiplatformpb.List
 }
 
 func (c *modelGRPCClient) ListModelVersions(ctx context.Context, req *aiplatformpb.ListModelVersionsRequest, opts ...gax.CallOption) *ModelIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListModelVersions[0:len((*c.CallOptions).ListModelVersions):len((*c.CallOptions).ListModelVersions)], opts...)
 	it := &ModelIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListModelVersionsRequest)
@@ -709,7 +797,7 @@ func (c *modelGRPCClient) ListModelVersions(ctx context.Context, req *aiplatform
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.modelClient.ListModelVersions(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.modelClient.ListModelVersions, req, settings.GRPC, c.logger, "ListModelVersions")
 			return err
 		}, opts...)
 		if err != nil {
@@ -735,20 +823,62 @@ func (c *modelGRPCClient) ListModelVersions(ctx context.Context, req *aiplatform
 	return it
 }
 
-func (c *modelGRPCClient) UpdateModel(ctx context.Context, req *aiplatformpb.UpdateModelRequest, opts ...gax.CallOption) (*aiplatformpb.Model, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "model.name", url.QueryEscape(req.GetModel().GetName())))
+func (c *modelGRPCClient) ListModelVersionCheckpoints(ctx context.Context, req *aiplatformpb.ListModelVersionCheckpointsRequest, opts ...gax.CallOption) *ModelVersionCheckpointIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).ListModelVersionCheckpoints[0:len((*c.CallOptions).ListModelVersionCheckpoints):len((*c.CallOptions).ListModelVersionCheckpoints)], opts...)
+	it := &ModelVersionCheckpointIterator{}
+	req = proto.Clone(req).(*aiplatformpb.ListModelVersionCheckpointsRequest)
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*aiplatformpb.ModelVersionCheckpoint, string, error) {
+		resp := &aiplatformpb.ListModelVersionCheckpointsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			var err error
+			resp, err = executeRPC(ctx, c.modelClient.ListModelVersionCheckpoints, req, settings.GRPC, c.logger, "ListModelVersionCheckpoints")
+			return err
+		}, opts...)
+		if err != nil {
+			return nil, "", err
+		}
+
+		it.Response = resp
+		return resp.GetCheckpoints(), resp.GetNextPageToken(), nil
+	}
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+func (c *modelGRPCClient) UpdateModel(ctx context.Context, req *aiplatformpb.UpdateModelRequest, opts ...gax.CallOption) (*aiplatformpb.Model, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "model.name", url.QueryEscape(req.GetModel().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateModel[0:len((*c.CallOptions).UpdateModel):len((*c.CallOptions).UpdateModel)], opts...)
 	var resp *aiplatformpb.Model
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.UpdateModel(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.UpdateModel, req, settings.GRPC, c.logger, "UpdateModel")
 		return err
 	}, opts...)
 	if err != nil {
@@ -758,14 +888,15 @@ func (c *modelGRPCClient) UpdateModel(ctx context.Context, req *aiplatformpb.Upd
 }
 
 func (c *modelGRPCClient) UpdateExplanationDataset(ctx context.Context, req *aiplatformpb.UpdateExplanationDatasetRequest, opts ...gax.CallOption) (*UpdateExplanationDatasetOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "model", url.QueryEscape(req.GetModel())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "model", url.QueryEscape(req.GetModel()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateExplanationDataset[0:len((*c.CallOptions).UpdateExplanationDataset):len((*c.CallOptions).UpdateExplanationDataset)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.UpdateExplanationDataset(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.UpdateExplanationDataset, req, settings.GRPC, c.logger, "UpdateExplanationDataset")
 		return err
 	}, opts...)
 	if err != nil {
@@ -777,19 +908,15 @@ func (c *modelGRPCClient) UpdateExplanationDataset(ctx context.Context, req *aip
 }
 
 func (c *modelGRPCClient) DeleteModel(ctx context.Context, req *aiplatformpb.DeleteModelRequest, opts ...gax.CallOption) (*DeleteModelOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteModel[0:len((*c.CallOptions).DeleteModel):len((*c.CallOptions).DeleteModel)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.DeleteModel(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.DeleteModel, req, settings.GRPC, c.logger, "DeleteModel")
 		return err
 	}, opts...)
 	if err != nil {
@@ -801,14 +928,15 @@ func (c *modelGRPCClient) DeleteModel(ctx context.Context, req *aiplatformpb.Del
 }
 
 func (c *modelGRPCClient) DeleteModelVersion(ctx context.Context, req *aiplatformpb.DeleteModelVersionRequest, opts ...gax.CallOption) (*DeleteModelVersionOperation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteModelVersion[0:len((*c.CallOptions).DeleteModelVersion):len((*c.CallOptions).DeleteModelVersion)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.DeleteModelVersion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.DeleteModelVersion, req, settings.GRPC, c.logger, "DeleteModelVersion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -820,14 +948,15 @@ func (c *modelGRPCClient) DeleteModelVersion(ctx context.Context, req *aiplatfor
 }
 
 func (c *modelGRPCClient) MergeVersionAliases(ctx context.Context, req *aiplatformpb.MergeVersionAliasesRequest, opts ...gax.CallOption) (*aiplatformpb.Model, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).MergeVersionAliases[0:len((*c.CallOptions).MergeVersionAliases):len((*c.CallOptions).MergeVersionAliases)], opts...)
 	var resp *aiplatformpb.Model
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.MergeVersionAliases(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.MergeVersionAliases, req, settings.GRPC, c.logger, "MergeVersionAliases")
 		return err
 	}, opts...)
 	if err != nil {
@@ -837,19 +966,15 @@ func (c *modelGRPCClient) MergeVersionAliases(ctx context.Context, req *aiplatfo
 }
 
 func (c *modelGRPCClient) ExportModel(ctx context.Context, req *aiplatformpb.ExportModelRequest, opts ...gax.CallOption) (*ExportModelOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ExportModel[0:len((*c.CallOptions).ExportModel):len((*c.CallOptions).ExportModel)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.ExportModel(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.ExportModel, req, settings.GRPC, c.logger, "ExportModel")
 		return err
 	}, opts...)
 	if err != nil {
@@ -860,15 +985,36 @@ func (c *modelGRPCClient) ExportModel(ctx context.Context, req *aiplatformpb.Exp
 	}, nil
 }
 
-func (c *modelGRPCClient) ImportModelEvaluation(ctx context.Context, req *aiplatformpb.ImportModelEvaluationRequest, opts ...gax.CallOption) (*aiplatformpb.ModelEvaluation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+func (c *modelGRPCClient) CopyModel(ctx context.Context, req *aiplatformpb.CopyModelRequest, opts ...gax.CallOption) (*CopyModelOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).CopyModel[0:len((*c.CallOptions).CopyModel):len((*c.CallOptions).CopyModel)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.modelClient.CopyModel, req, settings.GRPC, c.logger, "CopyModel")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &CopyModelOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *modelGRPCClient) ImportModelEvaluation(ctx context.Context, req *aiplatformpb.ImportModelEvaluationRequest, opts ...gax.CallOption) (*aiplatformpb.ModelEvaluation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ImportModelEvaluation[0:len((*c.CallOptions).ImportModelEvaluation):len((*c.CallOptions).ImportModelEvaluation)], opts...)
 	var resp *aiplatformpb.ModelEvaluation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.ImportModelEvaluation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.ImportModelEvaluation, req, settings.GRPC, c.logger, "ImportModelEvaluation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -878,14 +1024,33 @@ func (c *modelGRPCClient) ImportModelEvaluation(ctx context.Context, req *aiplat
 }
 
 func (c *modelGRPCClient) BatchImportModelEvaluationSlices(ctx context.Context, req *aiplatformpb.BatchImportModelEvaluationSlicesRequest, opts ...gax.CallOption) (*aiplatformpb.BatchImportModelEvaluationSlicesResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).BatchImportModelEvaluationSlices[0:len((*c.CallOptions).BatchImportModelEvaluationSlices):len((*c.CallOptions).BatchImportModelEvaluationSlices)], opts...)
 	var resp *aiplatformpb.BatchImportModelEvaluationSlicesResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.BatchImportModelEvaluationSlices(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.BatchImportModelEvaluationSlices, req, settings.GRPC, c.logger, "BatchImportModelEvaluationSlices")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *modelGRPCClient) BatchImportEvaluatedAnnotations(ctx context.Context, req *aiplatformpb.BatchImportEvaluatedAnnotationsRequest, opts ...gax.CallOption) (*aiplatformpb.BatchImportEvaluatedAnnotationsResponse, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).BatchImportEvaluatedAnnotations[0:len((*c.CallOptions).BatchImportEvaluatedAnnotations):len((*c.CallOptions).BatchImportEvaluatedAnnotations)], opts...)
+	var resp *aiplatformpb.BatchImportEvaluatedAnnotationsResponse
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.modelClient.BatchImportEvaluatedAnnotations, req, settings.GRPC, c.logger, "BatchImportEvaluatedAnnotations")
 		return err
 	}, opts...)
 	if err != nil {
@@ -895,19 +1060,15 @@ func (c *modelGRPCClient) BatchImportModelEvaluationSlices(ctx context.Context, 
 }
 
 func (c *modelGRPCClient) GetModelEvaluation(ctx context.Context, req *aiplatformpb.GetModelEvaluationRequest, opts ...gax.CallOption) (*aiplatformpb.ModelEvaluation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetModelEvaluation[0:len((*c.CallOptions).GetModelEvaluation):len((*c.CallOptions).GetModelEvaluation)], opts...)
 	var resp *aiplatformpb.ModelEvaluation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.GetModelEvaluation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.GetModelEvaluation, req, settings.GRPC, c.logger, "GetModelEvaluation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -917,9 +1078,10 @@ func (c *modelGRPCClient) GetModelEvaluation(ctx context.Context, req *aiplatfor
 }
 
 func (c *modelGRPCClient) ListModelEvaluations(ctx context.Context, req *aiplatformpb.ListModelEvaluationsRequest, opts ...gax.CallOption) *ModelEvaluationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListModelEvaluations[0:len((*c.CallOptions).ListModelEvaluations):len((*c.CallOptions).ListModelEvaluations)], opts...)
 	it := &ModelEvaluationIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListModelEvaluationsRequest)
@@ -935,7 +1097,7 @@ func (c *modelGRPCClient) ListModelEvaluations(ctx context.Context, req *aiplatf
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.modelClient.ListModelEvaluations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.modelClient.ListModelEvaluations, req, settings.GRPC, c.logger, "ListModelEvaluations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -962,19 +1124,15 @@ func (c *modelGRPCClient) ListModelEvaluations(ctx context.Context, req *aiplatf
 }
 
 func (c *modelGRPCClient) GetModelEvaluationSlice(ctx context.Context, req *aiplatformpb.GetModelEvaluationSliceRequest, opts ...gax.CallOption) (*aiplatformpb.ModelEvaluationSlice, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 5000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetModelEvaluationSlice[0:len((*c.CallOptions).GetModelEvaluationSlice):len((*c.CallOptions).GetModelEvaluationSlice)], opts...)
 	var resp *aiplatformpb.ModelEvaluationSlice
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.modelClient.GetModelEvaluationSlice(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.modelClient.GetModelEvaluationSlice, req, settings.GRPC, c.logger, "GetModelEvaluationSlice")
 		return err
 	}, opts...)
 	if err != nil {
@@ -984,9 +1142,10 @@ func (c *modelGRPCClient) GetModelEvaluationSlice(ctx context.Context, req *aipl
 }
 
 func (c *modelGRPCClient) ListModelEvaluationSlices(ctx context.Context, req *aiplatformpb.ListModelEvaluationSlicesRequest, opts ...gax.CallOption) *ModelEvaluationSliceIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListModelEvaluationSlices[0:len((*c.CallOptions).ListModelEvaluationSlices):len((*c.CallOptions).ListModelEvaluationSlices)], opts...)
 	it := &ModelEvaluationSliceIterator{}
 	req = proto.Clone(req).(*aiplatformpb.ListModelEvaluationSlicesRequest)
@@ -1002,7 +1161,7 @@ func (c *modelGRPCClient) ListModelEvaluationSlices(ctx context.Context, req *ai
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.modelClient.ListModelEvaluationSlices(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.modelClient.ListModelEvaluationSlices, req, settings.GRPC, c.logger, "ListModelEvaluationSlices")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1029,14 +1188,15 @@ func (c *modelGRPCClient) ListModelEvaluationSlices(ctx context.Context, req *ai
 }
 
 func (c *modelGRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
 	var resp *locationpb.Location
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.locationsClient.GetLocation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.locationsClient.GetLocation, req, settings.GRPC, c.logger, "GetLocation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1046,9 +1206,10 @@ func (c *modelGRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLo
 }
 
 func (c *modelGRPCClient) ListLocations(ctx context.Context, req *locationpb.ListLocationsRequest, opts ...gax.CallOption) *LocationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListLocations[0:len((*c.CallOptions).ListLocations):len((*c.CallOptions).ListLocations)], opts...)
 	it := &LocationIterator{}
 	req = proto.Clone(req).(*locationpb.ListLocationsRequest)
@@ -1064,7 +1225,7 @@ func (c *modelGRPCClient) ListLocations(ctx context.Context, req *locationpb.Lis
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.locationsClient.ListLocations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.locationsClient.ListLocations, req, settings.GRPC, c.logger, "ListLocations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1091,14 +1252,15 @@ func (c *modelGRPCClient) ListLocations(ctx context.Context, req *locationpb.Lis
 }
 
 func (c *modelGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.GetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.GetIamPolicy, req, settings.GRPC, c.logger, "GetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1108,14 +1270,15 @@ func (c *modelGRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPol
 }
 
 func (c *modelGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.SetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.SetIamPolicy, req, settings.GRPC, c.logger, "SetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1125,14 +1288,15 @@ func (c *modelGRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPol
 }
 
 func (c *modelGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	var resp *iampb.TestIamPermissionsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.iamPolicyClient.TestIamPermissions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.iamPolicyClient.TestIamPermissions, req, settings.GRPC, c.logger, "TestIamPermissions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1142,40 +1306,43 @@ func (c *modelGRPCClient) TestIamPermissions(ctx context.Context, req *iampb.Tes
 }
 
 func (c *modelGRPCClient) CancelOperation(ctx context.Context, req *longrunningpb.CancelOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CancelOperation[0:len((*c.CallOptions).CancelOperation):len((*c.CallOptions).CancelOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.CancelOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.CancelOperation, req, settings.GRPC, c.logger, "CancelOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *modelGRPCClient) DeleteOperation(ctx context.Context, req *longrunningpb.DeleteOperationRequest, opts ...gax.CallOption) error {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteOperation[0:len((*c.CallOptions).DeleteOperation):len((*c.CallOptions).DeleteOperation)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.operationsClient.DeleteOperation(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.operationsClient.DeleteOperation, req, settings.GRPC, c.logger, "DeleteOperation")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *modelGRPCClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.operationsClient.GetOperation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.operationsClient.GetOperation, req, settings.GRPC, c.logger, "GetOperation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1185,9 +1352,10 @@ func (c *modelGRPCClient) GetOperation(ctx context.Context, req *longrunningpb.G
 }
 
 func (c *modelGRPCClient) ListOperations(ctx context.Context, req *longrunningpb.ListOperationsRequest, opts ...gax.CallOption) *OperationIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListOperations[0:len((*c.CallOptions).ListOperations):len((*c.CallOptions).ListOperations)], opts...)
 	it := &OperationIterator{}
 	req = proto.Clone(req).(*longrunningpb.ListOperationsRequest)
@@ -1203,7 +1371,7 @@ func (c *modelGRPCClient) ListOperations(ctx context.Context, req *longrunningpb
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.operationsClient.ListOperations(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.operationsClient.ListOperations, req, settings.GRPC, c.logger, "ListOperations")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1230,14 +1398,15 @@ func (c *modelGRPCClient) ListOperations(ctx context.Context, req *longrunningpb
 }
 
 func (c *modelGRPCClient) WaitOperation(ctx context.Context, req *longrunningpb.WaitOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).WaitOperation[0:len((*c.CallOptions).WaitOperation):len((*c.CallOptions).WaitOperation)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.operationsClient.WaitOperation(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.operationsClient.WaitOperation, req, settings.GRPC, c.logger, "WaitOperation")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1260,10 +1429,17 @@ func (c *modelRESTClient) UploadModel(ctx context.Context, req *aiplatformpb.Upl
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/models:upload", req.GetParent())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1277,23 +1453,12 @@ func (c *modelRESTClient) UploadModel(ctx context.Context, req *aiplatformpb.Upl
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UploadModel")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1317,10 +1482,17 @@ func (c *modelRESTClient) GetModel(ctx context.Context, req *aiplatformpb.GetMod
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetModel[0:len((*c.CallOptions).GetModel):len((*c.CallOptions).GetModel)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.Model{}
@@ -1335,23 +1507,13 @@ func (c *modelRESTClient) GetModel(ctx context.Context, req *aiplatformpb.GetMod
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetModel")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1384,6 +1546,7 @@ func (c *modelRESTClient) ListModels(ctx context.Context, req *aiplatformpb.List
 		baseUrl.Path += fmt.Sprintf("/v1beta1/%v/models", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -1394,17 +1557,18 @@ func (c *modelRESTClient) ListModels(ctx context.Context, req *aiplatformpb.List
 			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
 		}
 		if req.GetReadMask() != nil {
-			readMask, err := protojson.Marshal(req.GetReadMask())
+			field, err := protojson.Marshal(req.GetReadMask())
 			if err != nil {
 				return nil, "", err
 			}
-			params.Add("readMask", string(readMask))
+			params.Add("readMask", string(field[1:len(field)-1]))
 		}
 
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -1415,23 +1579,12 @@ func (c *modelRESTClient) ListModels(ctx context.Context, req *aiplatformpb.List
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListModels")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1481,8 +1634,12 @@ func (c *modelRESTClient) ListModelVersions(ctx context.Context, req *aiplatform
 		baseUrl.Path += fmt.Sprintf("/v1beta1/%v:listVersions", req.GetName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetOrderBy() != "" {
+			params.Add("orderBy", fmt.Sprintf("%v", req.GetOrderBy()))
 		}
 		if req.GetPageSize() != 0 {
 			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
@@ -1491,17 +1648,18 @@ func (c *modelRESTClient) ListModelVersions(ctx context.Context, req *aiplatform
 			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
 		}
 		if req.GetReadMask() != nil {
-			readMask, err := protojson.Marshal(req.GetReadMask())
+			field, err := protojson.Marshal(req.GetReadMask())
 			if err != nil {
 				return nil, "", err
 			}
-			params.Add("readMask", string(readMask))
+			params.Add("readMask", string(field[1:len(field)-1]))
 		}
 
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -1512,23 +1670,12 @@ func (c *modelRESTClient) ListModelVersions(ctx context.Context, req *aiplatform
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListModelVersions")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -1538,6 +1685,84 @@ func (c *modelRESTClient) ListModelVersions(ctx context.Context, req *aiplatform
 		}
 		it.Response = resp
 		return resp.GetModels(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// ListModelVersionCheckpoints lists checkpoints of the specified model version.
+func (c *modelRESTClient) ListModelVersionCheckpoints(ctx context.Context, req *aiplatformpb.ListModelVersionCheckpointsRequest, opts ...gax.CallOption) *ModelVersionCheckpointIterator {
+	it := &ModelVersionCheckpointIterator{}
+	req = proto.Clone(req).(*aiplatformpb.ListModelVersionCheckpointsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*aiplatformpb.ModelVersionCheckpoint, string, error) {
+		resp := &aiplatformpb.ListModelVersionCheckpointsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1beta1/%v:listCheckpoints", req.GetName())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListModelVersionCheckpoints")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetCheckpoints(), resp.GetNextPageToken(), nil
 	}
 
 	fetch := func(pageSize int, pageToken string) (string, error) {
@@ -1572,20 +1797,23 @@ func (c *modelRESTClient) UpdateModel(ctx context.Context, req *aiplatformpb.Upd
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetModel().GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetUpdateMask() != nil {
-		updateMask, err := protojson.Marshal(req.GetUpdateMask())
+		field, err := protojson.Marshal(req.GetUpdateMask())
 		if err != nil {
 			return nil, err
 		}
-		params.Add("updateMask", string(updateMask))
+		params.Add("updateMask", string(field[1:len(field)-1]))
 	}
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "model.name", url.QueryEscape(req.GetModel().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "model.name", url.QueryEscape(req.GetModel().GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateModel[0:len((*c.CallOptions).UpdateModel):len((*c.CallOptions).UpdateModel)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.Model{}
@@ -1600,23 +1828,13 @@ func (c *modelRESTClient) UpdateModel(ctx context.Context, req *aiplatformpb.Upd
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateModel")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1641,10 +1859,17 @@ func (c *modelRESTClient) UpdateExplanationDataset(ctx context.Context, req *aip
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:updateExplanationDataset", req.GetModel())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "model", url.QueryEscape(req.GetModel())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "model", url.QueryEscape(req.GetModel()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1658,23 +1883,12 @@ func (c *modelRESTClient) UpdateExplanationDataset(ctx context.Context, req *aip
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateExplanationDataset")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1692,9 +1906,12 @@ func (c *modelRESTClient) UpdateExplanationDataset(ctx context.Context, req *aip
 
 // DeleteModel deletes a Model.
 //
-// A model cannot be deleted if any Endpoint resource has a
-// DeployedModel based on the model in its
-// deployed_models field.
+// A model cannot be deleted if any
+// Endpoint resource has a
+// DeployedModel based on the
+// model in its
+// deployed_models
+// field.
 func (c *modelRESTClient) DeleteModel(ctx context.Context, req *aiplatformpb.DeleteModelRequest, opts ...gax.CallOption) (*DeleteModelOperation, error) {
 	baseUrl, err := url.Parse(c.endpoint)
 	if err != nil {
@@ -1702,10 +1919,17 @@ func (c *modelRESTClient) DeleteModel(ctx context.Context, req *aiplatformpb.Del
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1719,23 +1943,12 @@ func (c *modelRESTClient) DeleteModel(ctx context.Context, req *aiplatformpb.Del
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteModel")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1753,9 +1966,11 @@ func (c *modelRESTClient) DeleteModel(ctx context.Context, req *aiplatformpb.Del
 
 // DeleteModelVersion deletes a Model version.
 //
-// Model version can only be deleted if there are no DeployedModels
-// created from it. Deleting the only version in the Model is not allowed. Use
-// DeleteModel for deleting the Model instead.
+// Model version can only be deleted if there are no
+// DeployedModels created
+// from it. Deleting the only version in the Model is not allowed. Use
+// DeleteModel for
+// deleting the Model instead.
 func (c *modelRESTClient) DeleteModelVersion(ctx context.Context, req *aiplatformpb.DeleteModelVersionRequest, opts ...gax.CallOption) (*DeleteModelVersionOperation, error) {
 	baseUrl, err := url.Parse(c.endpoint)
 	if err != nil {
@@ -1763,10 +1978,17 @@ func (c *modelRESTClient) DeleteModelVersion(ctx context.Context, req *aiplatfor
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:deleteVersion", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1780,23 +2002,12 @@ func (c *modelRESTClient) DeleteModelVersion(ctx context.Context, req *aiplatfor
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteModelVersion")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1826,10 +2037,17 @@ func (c *modelRESTClient) MergeVersionAliases(ctx context.Context, req *aiplatfo
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:mergeVersionAliases", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).MergeVersionAliases[0:len((*c.CallOptions).MergeVersionAliases):len((*c.CallOptions).MergeVersionAliases)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.Model{}
@@ -1844,23 +2062,13 @@ func (c *modelRESTClient) MergeVersionAliases(ctx context.Context, req *aiplatfo
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "MergeVersionAliases")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1873,7 +2081,8 @@ func (c *modelRESTClient) MergeVersionAliases(ctx context.Context, req *aiplatfo
 
 // ExportModel exports a trained, exportable Model to a location specified by the
 // user. A Model is considered to be exportable if it has at least one
-// [supported export format][google.cloud.aiplatform.v1beta1.Model.supported_export_formats].
+// [supported export
+// format][google.cloud.aiplatform.v1beta1.Model.supported_export_formats].
 func (c *modelRESTClient) ExportModel(ctx context.Context, req *aiplatformpb.ExportModelRequest, opts ...gax.CallOption) (*ExportModelOperation, error) {
 	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
 	jsonReq, err := m.Marshal(req)
@@ -1887,10 +2096,17 @@ func (c *modelRESTClient) ExportModel(ctx context.Context, req *aiplatformpb.Exp
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:export", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
 	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
@@ -1904,23 +2120,12 @@ func (c *modelRESTClient) ExportModel(ctx context.Context, req *aiplatformpb.Exp
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "ExportModel")
 		if err != nil {
 			return err
 		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
-		if err != nil {
-			return err
-		}
-
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -1931,6 +2136,70 @@ func (c *modelRESTClient) ExportModel(ctx context.Context, req *aiplatformpb.Exp
 
 	override := fmt.Sprintf("/ui/%s", resp.GetName())
 	return &ExportModelOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// CopyModel copies an already existing Vertex AI Model into the specified Location.
+// The source Model must exist in the same Project.
+// When copying custom Models, the users themselves are responsible for
+// Model.metadata content to
+// be region-agnostic, as well as making sure that any resources (e.g. files)
+// it depends on remain accessible.
+func (c *modelRESTClient) CopyModel(ctx context.Context, req *aiplatformpb.CopyModelRequest, opts ...gax.CallOption) (*CopyModelOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/models:copy", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CopyModel")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/ui/%s", resp.GetName())
+	return &CopyModelOperation{
 		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
 		pollPath: override,
 	}, nil
@@ -1950,10 +2219,17 @@ func (c *modelRESTClient) ImportModelEvaluation(ctx context.Context, req *aiplat
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/evaluations:import", req.GetParent())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).ImportModelEvaluation[0:len((*c.CallOptions).ImportModelEvaluation):len((*c.CallOptions).ImportModelEvaluation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.ModelEvaluation{}
@@ -1968,23 +2244,13 @@ func (c *modelRESTClient) ImportModelEvaluation(ctx context.Context, req *aiplat
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "ImportModelEvaluation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2009,10 +2275,17 @@ func (c *modelRESTClient) BatchImportModelEvaluationSlices(ctx context.Context, 
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/slices:batchImport", req.GetParent())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).BatchImportModelEvaluationSlices[0:len((*c.CallOptions).BatchImportModelEvaluationSlices):len((*c.CallOptions).BatchImportModelEvaluationSlices)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.BatchImportModelEvaluationSlicesResponse{}
@@ -2027,23 +2300,69 @@ func (c *modelRESTClient) BatchImportModelEvaluationSlices(ctx context.Context, 
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "BatchImportModelEvaluationSlices")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// BatchImportEvaluatedAnnotations imports a list of externally generated EvaluatedAnnotations.
+func (c *modelRESTClient) BatchImportEvaluatedAnnotations(ctx context.Context, req *aiplatformpb.BatchImportEvaluatedAnnotationsRequest, opts ...gax.CallOption) (*aiplatformpb.BatchImportEvaluatedAnnotationsResponse, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:batchImport", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).BatchImportEvaluatedAnnotations[0:len((*c.CallOptions).BatchImportEvaluatedAnnotations):len((*c.CallOptions).BatchImportEvaluatedAnnotations)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &aiplatformpb.BatchImportEvaluatedAnnotationsResponse{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "BatchImportEvaluatedAnnotations")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
 		}
 
 		return nil
@@ -2062,10 +2381,17 @@ func (c *modelRESTClient) GetModelEvaluation(ctx context.Context, req *aiplatfor
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetModelEvaluation[0:len((*c.CallOptions).GetModelEvaluation):len((*c.CallOptions).GetModelEvaluation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.ModelEvaluation{}
@@ -2080,23 +2406,13 @@ func (c *modelRESTClient) GetModelEvaluation(ctx context.Context, req *aiplatfor
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetModelEvaluation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2129,6 +2445,7 @@ func (c *modelRESTClient) ListModelEvaluations(ctx context.Context, req *aiplatf
 		baseUrl.Path += fmt.Sprintf("/v1beta1/%v/evaluations", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -2139,17 +2456,18 @@ func (c *modelRESTClient) ListModelEvaluations(ctx context.Context, req *aiplatf
 			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
 		}
 		if req.GetReadMask() != nil {
-			readMask, err := protojson.Marshal(req.GetReadMask())
+			field, err := protojson.Marshal(req.GetReadMask())
 			if err != nil {
 				return nil, "", err
 			}
-			params.Add("readMask", string(readMask))
+			params.Add("readMask", string(field[1:len(field)-1]))
 		}
 
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -2160,23 +2478,12 @@ func (c *modelRESTClient) ListModelEvaluations(ctx context.Context, req *aiplatf
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListModelEvaluations")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -2212,10 +2519,17 @@ func (c *modelRESTClient) GetModelEvaluationSlice(ctx context.Context, req *aipl
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetModelEvaluationSlice[0:len((*c.CallOptions).GetModelEvaluationSlice):len((*c.CallOptions).GetModelEvaluationSlice)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &aiplatformpb.ModelEvaluationSlice{}
@@ -2230,23 +2544,13 @@ func (c *modelRESTClient) GetModelEvaluationSlice(ctx context.Context, req *aipl
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetModelEvaluationSlice")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2279,6 +2583,7 @@ func (c *modelRESTClient) ListModelEvaluationSlices(ctx context.Context, req *ai
 		baseUrl.Path += fmt.Sprintf("/v1beta1/%v/slices", req.GetParent())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -2289,17 +2594,18 @@ func (c *modelRESTClient) ListModelEvaluationSlices(ctx context.Context, req *ai
 			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
 		}
 		if req.GetReadMask() != nil {
-			readMask, err := protojson.Marshal(req.GetReadMask())
+			field, err := protojson.Marshal(req.GetReadMask())
 			if err != nil {
 				return nil, "", err
 			}
-			params.Add("readMask", string(readMask))
+			params.Add("readMask", string(field[1:len(field)-1]))
 		}
 
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -2310,23 +2616,12 @@ func (c *modelRESTClient) ListModelEvaluationSlices(ctx context.Context, req *ai
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListModelEvaluationSlices")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -2362,10 +2657,17 @@ func (c *modelRESTClient) GetLocation(ctx context.Context, req *locationpb.GetLo
 	}
 	baseUrl.Path += fmt.Sprintf("/ui/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &locationpb.Location{}
@@ -2380,23 +2682,13 @@ func (c *modelRESTClient) GetLocation(ctx context.Context, req *locationpb.GetLo
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetLocation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2429,6 +2721,7 @@ func (c *modelRESTClient) ListLocations(ctx context.Context, req *locationpb.Lis
 		baseUrl.Path += fmt.Sprintf("/ui/%v/locations", req.GetName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -2442,7 +2735,8 @@ func (c *modelRESTClient) ListLocations(ctx context.Context, req *locationpb.Lis
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -2453,23 +2747,12 @@ func (c *modelRESTClient) ListLocations(ctx context.Context, req *locationpb.Lis
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListLocations")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -2512,10 +2795,17 @@ func (c *modelRESTClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPol
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:getIamPolicy", req.GetResource())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.Policy{}
@@ -2530,23 +2820,13 @@ func (c *modelRESTClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPol
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "GetIamPolicy")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2575,10 +2855,17 @@ func (c *modelRESTClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPol
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:setIamPolicy", req.GetResource())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.Policy{}
@@ -2593,23 +2880,13 @@ func (c *modelRESTClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPol
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SetIamPolicy")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2640,10 +2917,17 @@ func (c *modelRESTClient) TestIamPermissions(ctx context.Context, req *iampb.Tes
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v:testIamPermissions", req.GetResource())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &iampb.TestIamPermissionsResponse{}
@@ -2658,23 +2942,13 @@ func (c *modelRESTClient) TestIamPermissions(ctx context.Context, req *iampb.Tes
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "TestIamPermissions")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2693,10 +2967,17 @@ func (c *modelRESTClient) CancelOperation(ctx context.Context, req *longrunningp
 	}
 	baseUrl.Path += fmt.Sprintf("/ui/%v:cancel", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -2708,15 +2989,8 @@ func (c *modelRESTClient) CancelOperation(ctx context.Context, req *longrunningp
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "CancelOperation")
+		return err
 	}, opts...)
 }
 
@@ -2728,10 +3002,17 @@ func (c *modelRESTClient) DeleteOperation(ctx context.Context, req *longrunningp
 	}
 	baseUrl.Path += fmt.Sprintf("/ui/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		if settings.Path != "" {
 			baseUrl.Path = settings.Path
@@ -2743,15 +3024,8 @@ func (c *modelRESTClient) DeleteOperation(ctx context.Context, req *longrunningp
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		// Returns nil if there is no error, otherwise wraps
-		// the response code and body into a non-nil error
-		return googleapi.CheckResponse(httpRsp)
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteOperation")
+		return err
 	}, opts...)
 }
 
@@ -2763,10 +3037,17 @@ func (c *modelRESTClient) GetOperation(ctx context.Context, req *longrunningpb.G
 	}
 	baseUrl.Path += fmt.Sprintf("/ui/%v", req.GetName())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
@@ -2781,23 +3062,13 @@ func (c *modelRESTClient) GetOperation(ctx context.Context, req *longrunningpb.G
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetOperation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2830,6 +3101,7 @@ func (c *modelRESTClient) ListOperations(ctx context.Context, req *longrunningpb
 		baseUrl.Path += fmt.Sprintf("/ui/%v/operations", req.GetName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetFilter() != "" {
 			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
 		}
@@ -2843,7 +3115,8 @@ func (c *modelRESTClient) ListOperations(ctx context.Context, req *longrunningpb
 		baseUrl.RawQuery = params.Encode()
 
 		// Build HTTP headers from client and context metadata.
-		headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
 		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			if settings.Path != "" {
 				baseUrl.Path = settings.Path
@@ -2854,23 +3127,12 @@ func (c *modelRESTClient) ListOperations(ctx context.Context, req *longrunningpb
 			}
 			httpReq.Header = headers
 
-			httpRsp, err := c.httpClient.Do(httpReq)
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListOperations")
 			if err != nil {
 				return err
 			}
-			defer httpRsp.Body.Close()
-
-			if err = googleapi.CheckResponse(httpRsp); err != nil {
-				return err
-			}
-
-			buf, err := ioutil.ReadAll(httpRsp.Body)
-			if err != nil {
-				return err
-			}
-
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -2907,20 +3169,23 @@ func (c *modelRESTClient) WaitOperation(ctx context.Context, req *longrunningpb.
 	baseUrl.Path += fmt.Sprintf("/ui/%v:wait", req.GetName())
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetTimeout() != nil {
-		timeout, err := protojson.Marshal(req.GetTimeout())
+		field, err := protojson.Marshal(req.GetTimeout())
 		if err != nil {
 			return nil, err
 		}
-		params.Add("timeout", string(timeout))
+		params.Add("timeout", string(field[1:len(field)-1]))
 	}
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).WaitOperation[0:len((*c.CallOptions).WaitOperation):len((*c.CallOptions).WaitOperation)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &longrunningpb.Operation{}
@@ -2935,23 +3200,13 @@ func (c *modelRESTClient) WaitOperation(ctx context.Context, req *longrunningpb.
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "WaitOperation")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -2962,10 +3217,22 @@ func (c *modelRESTClient) WaitOperation(ctx context.Context, req *longrunningpb.
 	return resp, nil
 }
 
-// DeleteModelOperation manages a long-running operation from DeleteModel.
-type DeleteModelOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
+// CopyModelOperation returns a new CopyModelOperation from a given name.
+// The name must be that of a previously created CopyModelOperation, possibly from a different process.
+func (c *modelGRPCClient) CopyModelOperation(name string) *CopyModelOperation {
+	return &CopyModelOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+	}
+}
+
+// CopyModelOperation returns a new CopyModelOperation from a given name.
+// The name must be that of a previously created CopyModelOperation, possibly from a different process.
+func (c *modelRESTClient) CopyModelOperation(name string) *CopyModelOperation {
+	override := fmt.Sprintf("/ui/%s", name)
+	return &CopyModelOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
+	}
 }
 
 // DeleteModelOperation returns a new DeleteModelOperation from a given name.
@@ -2986,59 +3253,6 @@ func (c *modelRESTClient) DeleteModelOperation(name string) *DeleteModelOperatio
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteModelOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteModelOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteModelOperation) Metadata() (*aiplatformpb.DeleteOperationMetadata, error) {
-	var meta aiplatformpb.DeleteOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteModelOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteModelOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteModelVersionOperation manages a long-running operation from DeleteModelVersion.
-type DeleteModelVersionOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // DeleteModelVersionOperation returns a new DeleteModelVersionOperation from a given name.
 // The name must be that of a previously created DeleteModelVersionOperation, possibly from a different process.
 func (c *modelGRPCClient) DeleteModelVersionOperation(name string) *DeleteModelVersionOperation {
@@ -3055,59 +3269,6 @@ func (c *modelRESTClient) DeleteModelVersionOperation(name string) *DeleteModelV
 		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 		pollPath: override,
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteModelVersionOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteModelVersionOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteModelVersionOperation) Metadata() (*aiplatformpb.DeleteOperationMetadata, error) {
-	var meta aiplatformpb.DeleteOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteModelVersionOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteModelVersionOperation) Name() string {
-	return op.lro.Name()
-}
-
-// ExportModelOperation manages a long-running operation from ExportModel.
-type ExportModelOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
 }
 
 // ExportModelOperation returns a new ExportModelOperation from a given name.
@@ -3128,70 +3289,6 @@ func (c *modelRESTClient) ExportModelOperation(name string) *ExportModelOperatio
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *ExportModelOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.ExportModelResponse, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp aiplatformpb.ExportModelResponse
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *ExportModelOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.ExportModelResponse, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp aiplatformpb.ExportModelResponse
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *ExportModelOperation) Metadata() (*aiplatformpb.ExportModelOperationMetadata, error) {
-	var meta aiplatformpb.ExportModelOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *ExportModelOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *ExportModelOperation) Name() string {
-	return op.lro.Name()
-}
-
-// UpdateExplanationDatasetOperation manages a long-running operation from UpdateExplanationDataset.
-type UpdateExplanationDatasetOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // UpdateExplanationDatasetOperation returns a new UpdateExplanationDatasetOperation from a given name.
 // The name must be that of a previously created UpdateExplanationDatasetOperation, possibly from a different process.
 func (c *modelGRPCClient) UpdateExplanationDatasetOperation(name string) *UpdateExplanationDatasetOperation {
@@ -3210,70 +3307,6 @@ func (c *modelRESTClient) UpdateExplanationDatasetOperation(name string) *Update
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *UpdateExplanationDatasetOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.UpdateExplanationDatasetResponse, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp aiplatformpb.UpdateExplanationDatasetResponse
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *UpdateExplanationDatasetOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.UpdateExplanationDatasetResponse, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp aiplatformpb.UpdateExplanationDatasetResponse
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *UpdateExplanationDatasetOperation) Metadata() (*aiplatformpb.UpdateExplanationDatasetOperationMetadata, error) {
-	var meta aiplatformpb.UpdateExplanationDatasetOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *UpdateExplanationDatasetOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *UpdateExplanationDatasetOperation) Name() string {
-	return op.lro.Name()
-}
-
-// UploadModelOperation manages a long-running operation from UploadModel.
-type UploadModelOperation struct {
-	lro      *longrunning.Operation
-	pollPath string
-}
-
 // UploadModelOperation returns a new UploadModelOperation from a given name.
 // The name must be that of a previously created UploadModelOperation, possibly from a different process.
 func (c *modelGRPCClient) UploadModelOperation(name string) *UploadModelOperation {
@@ -3290,203 +3323,4 @@ func (c *modelRESTClient) UploadModelOperation(name string) *UploadModelOperatio
 		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 		pollPath: override,
 	}
-}
-
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *UploadModelOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.UploadModelResponse, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp aiplatformpb.UploadModelResponse
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *UploadModelOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*aiplatformpb.UploadModelResponse, error) {
-	opts = append([]gax.CallOption{gax.WithPath(op.pollPath)}, opts...)
-	var resp aiplatformpb.UploadModelResponse
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *UploadModelOperation) Metadata() (*aiplatformpb.UploadModelOperationMetadata, error) {
-	var meta aiplatformpb.UploadModelOperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *UploadModelOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *UploadModelOperation) Name() string {
-	return op.lro.Name()
-}
-
-// ModelEvaluationIterator manages a stream of *aiplatformpb.ModelEvaluation.
-type ModelEvaluationIterator struct {
-	items    []*aiplatformpb.ModelEvaluation
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.ModelEvaluation, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ModelEvaluationIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ModelEvaluationIterator) Next() (*aiplatformpb.ModelEvaluation, error) {
-	var item *aiplatformpb.ModelEvaluation
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ModelEvaluationIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ModelEvaluationIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ModelEvaluationSliceIterator manages a stream of *aiplatformpb.ModelEvaluationSlice.
-type ModelEvaluationSliceIterator struct {
-	items    []*aiplatformpb.ModelEvaluationSlice
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.ModelEvaluationSlice, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ModelEvaluationSliceIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ModelEvaluationSliceIterator) Next() (*aiplatformpb.ModelEvaluationSlice, error) {
-	var item *aiplatformpb.ModelEvaluationSlice
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ModelEvaluationSliceIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ModelEvaluationSliceIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// ModelIterator manages a stream of *aiplatformpb.Model.
-type ModelIterator struct {
-	items    []*aiplatformpb.Model
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*aiplatformpb.Model, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *ModelIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *ModelIterator) Next() (*aiplatformpb.Model, error) {
-	var item *aiplatformpb.Model
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *ModelIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *ModelIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
 }

@@ -15,18 +15,23 @@
 package storage
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/compute/metadata"
 	"cloud.google.com/go/internal/testutil"
-	storagepb "cloud.google.com/go/storage/internal/apiv2/stubs"
+	"cloud.google.com/go/storage/internal/apiv2/storagepb"
 	"github.com/google/go-cmp/cmp"
 	gax "github.com/googleapis/gax-go/v2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/googleapi"
+	"google.golang.org/api/option"
 	raw "google.golang.org/api/storage/v1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestBucketAttrsToRawBucket(t *testing.T) {
@@ -59,10 +64,12 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 				ResponseHeaders: []string{"FOO"},
 			},
 		},
-		Encryption: &BucketEncryption{DefaultKMSKeyName: "key"},
-		Logging:    &BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
-		Website:    &BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
-		Autoclass:  &Autoclass{Enabled: true},
+		Encryption:            &BucketEncryption{DefaultKMSKeyName: "key"},
+		Logging:               &BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
+		Website:               &BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
+		Autoclass:             &Autoclass{Enabled: true, TerminalStorageClass: "NEARLINE"},
+		SoftDeletePolicy:      &SoftDeletePolicy{RetentionDuration: time.Hour},
+		HierarchicalNamespace: &HierarchicalNamespace{Enabled: true},
 		Lifecycle: Lifecycle{
 			Rules: []LifecycleRule{{
 				Action: LifecycleAction{
@@ -163,10 +170,12 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 				ResponseHeader: []string{"FOO"},
 			},
 		},
-		Encryption: &raw.BucketEncryption{DefaultKmsKeyName: "key"},
-		Logging:    &raw.BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
-		Website:    &raw.BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
-		Autoclass:  &raw.BucketAutoclass{Enabled: true},
+		Encryption:            &raw.BucketEncryption{DefaultKmsKeyName: "key"},
+		Logging:               &raw.BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
+		Website:               &raw.BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
+		Autoclass:             &raw.BucketAutoclass{Enabled: true, TerminalStorageClass: "NEARLINE"},
+		SoftDeletePolicy:      &raw.BucketSoftDeletePolicy{RetentionDurationSeconds: 60 * 60, ForceSendFields: []string{"RetentionDurationSeconds"}},
+		HierarchicalNamespace: &raw.BucketHierarchicalNamespace{Enabled: true},
 		Lifecycle: &raw.BucketLifecycle{
 			Rule: []*raw.BucketLifecycleRule{{
 				Action: &raw.BucketLifecycleRuleAction{
@@ -270,7 +279,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 		PublicAccessPrevention: "enforced",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set BucketPolicyOnly.Enabled = true --> UBLA should be set to enabled in
@@ -285,7 +294,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 		PublicAccessPrevention: "enforced",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set both BucketPolicyOnly.Enabled = true and
@@ -301,7 +310,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 		PublicAccessPrevention: "enforced",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set UBLA.Enabled=false and BucketPolicyOnly.Enabled=false --> UBLA
@@ -313,7 +322,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 		PublicAccessPrevention: "enforced",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Test that setting PublicAccessPrevention to "unspecified" leads to the
@@ -324,7 +333,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 		PublicAccessPrevention: "inherited",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Test that setting PublicAccessPrevention to "inherited" leads to the
@@ -335,7 +344,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 		PublicAccessPrevention: "inherited",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Test that setting RPO to default is propagated in the proto.
@@ -343,7 +352,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 	got = attrs.toRawBucket()
 	want.Rpo = rpoDefault
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Re-enable UBLA and confirm that it does not affect the PAP setting.
@@ -356,7 +365,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 		PublicAccessPrevention: "inherited",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Disable UBLA and reset PAP to default. Confirm that the IAM config is set
@@ -366,7 +375,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 	got = attrs.toRawBucket()
 	want.IamConfiguration = nil
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 }
 
@@ -392,10 +401,11 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 				},
 			},
 		},
-		Logging:      &BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
-		Website:      &BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
-		StorageClass: "NEARLINE",
-		Autoclass:    &Autoclass{Enabled: false},
+		Logging:          &BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
+		Website:          &BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
+		StorageClass:     "NEARLINE",
+		Autoclass:        &Autoclass{Enabled: true, TerminalStorageClass: "ARCHIVE"},
+		SoftDeletePolicy: &SoftDeletePolicy{RetentionDuration: time.Hour},
 	}
 	au.SetLabel("a", "foo")
 	au.DeleteLabel("b")
@@ -436,11 +446,12 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 				},
 			},
 		},
-		Logging:         &raw.BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
-		Website:         &raw.BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
-		StorageClass:    "NEARLINE",
-		Autoclass:       &raw.BucketAutoclass{Enabled: false, ForceSendFields: []string{"Enabled"}},
-		ForceSendFields: []string{"DefaultEventBasedHold", "Lifecycle"},
+		Logging:          &raw.BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
+		Website:          &raw.BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
+		StorageClass:     "NEARLINE",
+		Autoclass:        &raw.BucketAutoclass{Enabled: true, TerminalStorageClass: "ARCHIVE", ForceSendFields: []string{"Enabled"}},
+		SoftDeletePolicy: &raw.BucketSoftDeletePolicy{RetentionDurationSeconds: 3600, ForceSendFields: []string{"RetentionDurationSeconds"}},
+		ForceSendFields:  []string{"DefaultEventBasedHold", "Lifecycle", "Autoclass"},
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
 		t.Error(msg)
@@ -460,14 +471,18 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 
 	// Test nulls.
 	au3 := &BucketAttrsToUpdate{
-		RetentionPolicy: &RetentionPolicy{},
-		Encryption:      &BucketEncryption{},
-		Logging:         &BucketLogging{},
-		Website:         &BucketWebsite{},
+		RetentionPolicy:  &RetentionPolicy{},
+		Encryption:       &BucketEncryption{},
+		Logging:          &BucketLogging{},
+		Website:          &BucketWebsite{},
+		SoftDeletePolicy: &SoftDeletePolicy{},
 	}
 	got = au3.toRawBucket()
 	want = &raw.Bucket{
 		NullFields: []string{"RetentionPolicy", "Encryption", "Logging", "Website"},
+		SoftDeletePolicy: &raw.BucketSoftDeletePolicy{
+			ForceSendFields: []string{"RetentionDurationSeconds"},
+		},
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
 		t.Error(msg)
@@ -489,7 +504,7 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 		},
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set BucketPolicyOnly.Enabled = true --> UBLA should be set to enabled in
@@ -507,7 +522,7 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 		},
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set both BucketPolicyOnly.Enabled = true and
@@ -527,7 +542,7 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 		},
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set UBLA.Enabled=false and BucketPolicyOnly.Enabled=false --> UBLA
@@ -546,7 +561,7 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 		},
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// UBLA.Enabled will have precedence above BucketPolicyOnly.Enabled if both
@@ -565,7 +580,7 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 		},
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set an empty Lifecycle and verify that it will be sent.
@@ -580,7 +595,7 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 		ForceSendFields: []string{"Lifecycle"},
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 }
 
@@ -595,6 +610,7 @@ func TestNewBucket(t *testing.T) {
 		Metageneration:        3,
 		StorageClass:          "sc",
 		TimeCreated:           "2017-10-23T04:05:06Z",
+		Updated:               "2024-08-21T17:24:53Z",
 		Versioning:            &raw.BucketVersioning{Enabled: true},
 		Labels:                labels,
 		Billing:               &raw.BucketBilling{RequesterPays: true},
@@ -617,6 +633,9 @@ func TestNewBucket(t *testing.T) {
 		RetentionPolicy: &raw.BucketRetentionPolicy{
 			RetentionPeriod: 3,
 			EffectiveTime:   aTime.Format(time.RFC3339),
+		},
+		ObjectRetention: &raw.BucketObjectRetention{
+			Mode: "Enabled",
 		},
 		IamConfiguration: &raw.BucketIamConfiguration{
 			BucketPolicyOnly: &raw.BucketIamConfigurationBucketPolicyOnly{
@@ -645,9 +664,16 @@ func TestNewBucket(t *testing.T) {
 		Website:       &raw.BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
 		ProjectNumber: 123231313,
 		Autoclass: &raw.BucketAutoclass{
-			Enabled:    true,
-			ToggleTime: "2017-10-23T04:05:06Z",
+			Enabled:                        true,
+			ToggleTime:                     "2017-10-23T04:05:06Z",
+			TerminalStorageClass:           "NEARLINE",
+			TerminalStorageClassUpdateTime: "2017-10-23T04:05:06Z",
 		},
+		SoftDeletePolicy: &raw.BucketSoftDeletePolicy{
+			EffectiveTime:            "2017-10-23T04:05:06Z",
+			RetentionDurationSeconds: 3600,
+		},
+		HierarchicalNamespace: &raw.BucketHierarchicalNamespace{Enabled: true},
 	}
 	want := &BucketAttrs{
 		Name:                  "name",
@@ -656,6 +682,7 @@ func TestNewBucket(t *testing.T) {
 		MetaGeneration:        3,
 		StorageClass:          "sc",
 		Created:               time.Date(2017, 10, 23, 4, 5, 6, 0, time.UTC),
+		Updated:               time.Date(2024, 8, 21, 17, 24, 53, 0, time.UTC),
 		VersioningEnabled:     true,
 		Labels:                labels,
 		Etag:                  "Zkyw9ACJZUvcYmlFaKGChzhmtnE/dt1zHSfweiWpwzdGsqXwuJZqiD0",
@@ -681,6 +708,7 @@ func TestNewBucket(t *testing.T) {
 			EffectiveTime:   aTime,
 			RetentionPeriod: 3 * time.Second,
 		},
+		ObjectRetentionMode:      "Enabled",
 		BucketPolicyOnly:         BucketPolicyOnly{Enabled: true, LockedTime: aTime},
 		UniformBucketLevelAccess: UniformBucketLevelAccess{Enabled: true, LockedTime: aTime},
 		CORS: []CORS{
@@ -699,20 +727,28 @@ func TestNewBucket(t *testing.T) {
 		LocationType:     "dual-region",
 		ProjectNumber:    123231313,
 		Autoclass: &Autoclass{
-			Enabled:    true,
-			ToggleTime: time.Date(2017, 10, 23, 4, 5, 6, 0, time.UTC),
+			Enabled:                        true,
+			ToggleTime:                     time.Date(2017, 10, 23, 4, 5, 6, 0, time.UTC),
+			TerminalStorageClass:           "NEARLINE",
+			TerminalStorageClassUpdateTime: time.Date(2017, 10, 23, 4, 5, 6, 0, time.UTC),
 		},
+		SoftDeletePolicy: &SoftDeletePolicy{
+			EffectiveTime:     time.Date(2017, 10, 23, 4, 5, 6, 0, time.UTC),
+			RetentionDuration: time.Hour,
+		},
+		HierarchicalNamespace: &HierarchicalNamespace{Enabled: true},
 	}
 	got, err := newBucket(rb)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diff := testutil.Diff(got, want); diff != "" {
+	if diff := cmp.Diff(got, want); diff != "" {
 		t.Errorf("got=-, want=+:\n%s", diff)
 	}
 }
 
 func TestNewBucketFromProto(t *testing.T) {
+	autoclassTSC := "NEARLINE"
 	pb := &storagepb.Bucket{
 		Name: "name",
 		Acl: []*storagepb.BucketAccessControl{
@@ -725,8 +761,8 @@ func TestNewBucketFromProto(t *testing.T) {
 		LocationType: "region",
 		StorageClass: "class",
 		RetentionPolicy: &storagepb.Bucket_RetentionPolicy{
-			RetentionPeriod: proto.Int64(int64(3)),
-			EffectiveTime:   toProtoTimestamp(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
+			RetentionDuration: durationpb.New(3 * time.Second),
+			EffectiveTime:     toProtoTimestamp(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
 		},
 		IamConfig: &storagepb.Bucket_IamConfig{
 			UniformBucketLevelAccess: &storagepb.Bucket_IamConfig_UniformBucketLevelAccess{
@@ -738,6 +774,7 @@ func TestNewBucketFromProto(t *testing.T) {
 		Rpo:            rpoAsyncTurbo,
 		Metageneration: int64(39),
 		CreateTime:     toProtoTimestamp(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
+		UpdateTime:     toProtoTimestamp(time.Date(2024, 1, 2, 3, 4, 5, 6, time.UTC)),
 		Labels:         map[string]string{"label": "value"},
 		Cors: []*storagepb.Bucket_Cors{
 			{
@@ -750,7 +787,19 @@ func TestNewBucketFromProto(t *testing.T) {
 		Encryption: &storagepb.Bucket_Encryption{DefaultKmsKey: "key"},
 		Logging:    &storagepb.Bucket_Logging{LogBucket: "projects/_/buckets/lb", LogObjectPrefix: "p"},
 		Website:    &storagepb.Bucket_Website{MainPageSuffix: "mps", NotFoundPage: "404"},
-		Autoclass:  &storagepb.Bucket_Autoclass{Enabled: true, ToggleTime: toProtoTimestamp(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC))},
+		Autoclass: &storagepb.Bucket_Autoclass{
+			Enabled:                        true,
+			ToggleTime:                     toProtoTimestamp(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
+			TerminalStorageClass:           &autoclassTSC,
+			TerminalStorageClassUpdateTime: toProtoTimestamp(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
+		},
+		SoftDeletePolicy: &storagepb.Bucket_SoftDeletePolicy{
+			RetentionDuration: durationpb.New(3 * time.Hour),
+			EffectiveTime:     toProtoTimestamp(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
+		},
+		HierarchicalNamespace: &storagepb.Bucket_HierarchicalNamespace{
+			Enabled: true,
+		},
 		Lifecycle: &storagepb.Bucket_Lifecycle{
 			Rule: []*storagepb.Bucket_Lifecycle_Rule{
 				{
@@ -779,6 +828,7 @@ func TestNewBucketFromProto(t *testing.T) {
 		RPO:                      RPOAsyncTurbo,
 		MetaGeneration:           39,
 		Created:                  time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		Updated:                  time.Date(2024, 1, 2, 3, 4, 5, 6, time.UTC),
 		Labels:                   map[string]string{"label": "value"},
 		CORS: []CORS{
 			{
@@ -791,7 +841,14 @@ func TestNewBucketFromProto(t *testing.T) {
 		Encryption: &BucketEncryption{DefaultKMSKeyName: "key"},
 		Logging:    &BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
 		Website:    &BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
-		Autoclass:  &Autoclass{Enabled: true, ToggleTime: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)},
+		Autoclass:  &Autoclass{Enabled: true, ToggleTime: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), TerminalStorageClass: "NEARLINE", TerminalStorageClassUpdateTime: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)},
+		SoftDeletePolicy: &SoftDeletePolicy{
+			EffectiveTime:     time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+			RetentionDuration: time.Hour * 3,
+		},
+		HierarchicalNamespace: &HierarchicalNamespace{
+			Enabled: true,
+		},
 		Lifecycle: Lifecycle{
 			Rules: []LifecycleRule{{
 				Action: LifecycleAction{
@@ -804,7 +861,7 @@ func TestNewBucketFromProto(t *testing.T) {
 		},
 	}
 	got := newBucketFromProto(pb)
-	if diff := testutil.Diff(got, want); diff != "" {
+	if diff := cmp.Diff(got, want); diff != "" {
 		t.Errorf("got=-, want=+:\n%s", diff)
 	}
 }
@@ -836,10 +893,12 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 				ResponseHeaders: []string{"FOO"},
 			},
 		},
-		Encryption: &BucketEncryption{DefaultKMSKeyName: "key"},
-		Logging:    &BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
-		Website:    &BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
-		Autoclass:  &Autoclass{Enabled: true},
+		Encryption:            &BucketEncryption{DefaultKMSKeyName: "key"},
+		Logging:               &BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
+		Website:               &BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
+		Autoclass:             &Autoclass{Enabled: true, TerminalStorageClass: "ARCHIVE"},
+		SoftDeletePolicy:      &SoftDeletePolicy{RetentionDuration: time.Hour * 2},
+		HierarchicalNamespace: &HierarchicalNamespace{Enabled: true},
 		Lifecycle: Lifecycle{
 			Rules: []LifecycleRule{{
 				Action: LifecycleAction{
@@ -855,6 +914,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		Etag:           "Zkyw9ACJZUvcYmlFaKGChzhmtnE/dt1zHSfweiWpwzdGsqXwuJZqiD0",
 	}
 	got := attrs.toProtoBucket()
+	autoclassTSC := "ARCHIVE"
 	want := &storagepb.Bucket{
 		Name: "name",
 		Acl: []*storagepb.BucketAccessControl{
@@ -866,7 +926,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		Location:     "loc",
 		StorageClass: "class",
 		RetentionPolicy: &storagepb.Bucket_RetentionPolicy{
-			RetentionPeriod: proto.Int64(int64(3)),
+			RetentionDuration: durationpb.New(3 * time.Second),
 		},
 		IamConfig: &storagepb.Bucket_IamConfig{
 			UniformBucketLevelAccess: &storagepb.Bucket_IamConfig_UniformBucketLevelAccess{
@@ -885,10 +945,12 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 				ResponseHeader: []string{"FOO"},
 			},
 		},
-		Encryption: &storagepb.Bucket_Encryption{DefaultKmsKey: "key"},
-		Logging:    &storagepb.Bucket_Logging{LogBucket: "projects/_/buckets/lb", LogObjectPrefix: "p"},
-		Website:    &storagepb.Bucket_Website{MainPageSuffix: "mps", NotFoundPage: "404"},
-		Autoclass:  &storagepb.Bucket_Autoclass{Enabled: true},
+		Encryption:            &storagepb.Bucket_Encryption{DefaultKmsKey: "key"},
+		Logging:               &storagepb.Bucket_Logging{LogBucket: "projects/_/buckets/lb", LogObjectPrefix: "p"},
+		Website:               &storagepb.Bucket_Website{MainPageSuffix: "mps", NotFoundPage: "404"},
+		Autoclass:             &storagepb.Bucket_Autoclass{Enabled: true, TerminalStorageClass: &autoclassTSC},
+		SoftDeletePolicy:      &storagepb.Bucket_SoftDeletePolicy{RetentionDuration: durationpb.New(2 * time.Hour)},
+		HierarchicalNamespace: &storagepb.Bucket_HierarchicalNamespace{Enabled: true},
 		Lifecycle: &storagepb.Bucket_Lifecycle{
 			Rule: []*storagepb.Bucket_Lifecycle_Rule{
 				{
@@ -930,7 +992,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		PublicAccessPrevention: "enforced",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set BucketPolicyOnly.Enabled = true --> UBLA should be set to enabled in
@@ -945,7 +1007,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		PublicAccessPrevention: "enforced",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set both BucketPolicyOnly.Enabled = true and
@@ -961,7 +1023,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		PublicAccessPrevention: "enforced",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Set UBLA.Enabled=false and BucketPolicyOnly.Enabled=false --> UBLA
@@ -973,7 +1035,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		PublicAccessPrevention: "enforced",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Test that setting PublicAccessPrevention to "unspecified" leads to the
@@ -984,7 +1046,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		PublicAccessPrevention: "inherited",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Test that setting PublicAccessPrevention to "inherited" leads to the
@@ -995,7 +1057,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		PublicAccessPrevention: "inherited",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Test that setting RPO to default is propagated in the proto.
@@ -1003,7 +1065,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 	got = attrs.toProtoBucket()
 	want.Rpo = rpoDefault
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Re-enable UBLA and confirm that it does not affect the PAP setting.
@@ -1016,7 +1078,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 		PublicAccessPrevention: "inherited",
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 
 	// Disable UBLA and reset PAP to default. Confirm that the IAM config is set
@@ -1026,7 +1088,7 @@ func TestBucketAttrsToProtoBucket(t *testing.T) {
 	got = attrs.toProtoBucket()
 	want.IamConfig = nil
 	if msg := testutil.Diff(got, want); msg != "" {
-		t.Errorf(msg)
+		t.Errorf("%v", msg)
 	}
 }
 
@@ -1053,6 +1115,7 @@ func TestBucketRetryer(t *testing.T) {
 						Multiplier: 3,
 					}),
 					WithPolicy(RetryAlways),
+					WithMaxAttempts(5),
 					WithErrorFunc(func(err error) bool { return false }))
 			},
 			want: &retryConfig{
@@ -1062,6 +1125,7 @@ func TestBucketRetryer(t *testing.T) {
 					Multiplier: 3,
 				},
 				policy:      RetryAlways,
+				maxAttempts: intPointer(5),
 				shouldRetry: func(err error) bool { return false },
 			},
 		},
@@ -1085,6 +1149,15 @@ func TestBucketRetryer(t *testing.T) {
 			},
 			want: &retryConfig{
 				policy: RetryNever,
+			},
+		},
+		{
+			name: "set max retry attempts only",
+			call: func(b *BucketHandle) *BucketHandle {
+				return b.Retryer(WithMaxAttempts(5))
+			},
+			want: &retryConfig{
+				maxAttempts: intPointer(5),
 			},
 		},
 		{
@@ -1182,6 +1255,41 @@ func TestDetectDefaultGoogleAccessID(t *testing.T) {
 			},
 			expectSuccess: false,
 		},
+		{
+			name:           "malformed creds",
+			serviceAccount: "default@my-project.iam.gserviceaccount.com",
+			creds: func(sa string) string {
+				return fmt.Sprintf(`{
+					"type": "service_account"
+					"project_id": "my-project",
+					"private_key_id": "my1",
+					"private_key": "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n",
+					"client_email": "%s",
+				}`, sa)
+			},
+			expectSuccess: false,
+		},
+		{
+			name:           "external creds",
+			serviceAccount: "default@my-project.iam.gserviceaccount.com",
+			creds: func(sa string) string {
+				return fmt.Sprintf(`{
+					"type": "external_account",
+					"audience": "//iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/providers/$PROVIDER_ID",
+					"subject_token_type": "urn:ietf:params:aws:token-type:aws4_request",
+					"service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/%s:generateAccessToken",
+					"token_url": "https://sts.googleapis.com/v1/token",
+					"credential_source": {
+					  "environment_id": "id",
+					  "region_url": "region_url",
+					  "url": "url",
+					  "regional_cred_verification_url": "ver_url",
+					  "imdsv2_session_token_url": "tok_url"
+					}
+				  }`, sa)
+			},
+			expectSuccess: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1203,9 +1311,363 @@ func TestDetectDefaultGoogleAccessID(t *testing.T) {
 				if id != tc.serviceAccount {
 					t.Errorf("service account not found correctly; got: %s, want: %s", id, tc.serviceAccount)
 				}
+			} else if metadata.OnGCE() {
+				// On GCE, we fall back to the default service account. Check that's
+				// what happened.
+				defaultServiceAccount, err := metadata.Email("default")
+				if err != nil {
+					t.Errorf("could not load metadata service account for fallback: %v", err)
+				}
+				if id != defaultServiceAccount {
+					t.Errorf("service account not found correctly on fallback; got: %s, want: %s", id, defaultServiceAccount)
+				}
 			} else if err == nil {
 				t.Error("expected error but detectDefaultGoogleAccessID did not return one")
 			}
 		})
+	}
+}
+
+// TestBucketSignedURL_Endpoint_Emulator_Host tests that Bucket.SignedURl
+// respects the host set in STORAGE_EMULATOR_HOST and/or in option.WithEndpoint
+// TODO: move this testing to conformance tests.
+func TestBucketSignedURL_Endpoint_Emulator_Host(t *testing.T) {
+	expires, _ := time.Parse(time.RFC3339, "2002-10-02T10:00:00-05:00")
+	bucketName := "bucket-name"
+	objectName := "obj-name"
+
+	localhost9000 := "localhost:9000"
+	localhost6000Https := "https://localhost:6000"
+
+	tests := []struct {
+		desc         string
+		emulatorHost string
+		endpoint     *string
+		now          time.Time
+		opts         *SignedURLOptions
+		// Note for future implementors: X-Goog-Signature generated by having
+		// the client run through its algorithm with pre-defined input and copy
+		// pasting the output. These tests are not great for testing whether
+		// the right signature is calculated - instead we rely on the backend
+		// and integration tests for that.
+		want string
+	}{
+		{
+			desc:         "SignURLV4 creates link to resources in emulator",
+			emulatorHost: localhost9000,
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4,
+				Insecure:       true,
+			},
+			want: "http://localhost:9000/" + bucketName + "/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=249c53142e57adf594b4f523a8a1f9c15f29b071e9abc0cf6665dbc5f692fc96fac4ab98bbea4c2397384367bc970a2e1771f2c86624475f3273970ecde8ff6df39d647e5c3f3263bf67a743e211c1958a96775edf53ece1f69ed337f0ab7fdc081c6c2b84e57b0922280d27f1da1bff47e77e3822fb1756e4c5cece9d220e6d0824ab9528e97e54f0cb09b352193b0e895344d894de11b3f5f9a2ec7d8fd6d0a4c487afd1896385a3ab9e8c3fcb3862ec0cad6ec10af1b574078eb7c79b558bcd85449a67079a0ee6da97fcbad074f1bf9fdfbdca12945336a8bd0a3b70b4c7708918cb83d10c7c4ff1f8b73275e9d1ba5d3db91069dffdf81eb7badf4e3c80" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:     "SignURLV4 - endpoint",
+			endpoint: &localhost9000,
+			now:      expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4,
+				Insecure:       true,
+			},
+			want: "http://localhost:9000/" + bucketName + "/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=249c53142e57adf594b4f523a8a1f9c15f29b071e9abc0cf6665dbc5f692fc96fac4ab98bbea4c2397384367bc970a2e1771f2c86624475f3273970ecde8ff6df39d647e5c3f3263bf67a743e211c1958a96775edf53ece1f69ed337f0ab7fdc081c6c2b84e57b0922280d27f1da1bff47e77e3822fb1756e4c5cece9d220e6d0824ab9528e97e54f0cb09b352193b0e895344d894de11b3f5f9a2ec7d8fd6d0a4c487afd1896385a3ab9e8c3fcb3862ec0cad6ec10af1b574078eb7c79b558bcd85449a67079a0ee6da97fcbad074f1bf9fdfbdca12945336a8bd0a3b70b4c7708918cb83d10c7c4ff1f8b73275e9d1ba5d3db91069dffdf81eb7badf4e3c80" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:         "SignURLV4 - endpoint takes precedence over emulator",
+			endpoint:     &localhost9000,
+			emulatorHost: "localhost:8000",
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4,
+				Insecure:       true,
+			},
+			want: "http://localhost:9000/" + bucketName + "/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=249c53142e57adf594b4f523a8a1f9c15f29b071e9abc0cf6665dbc5f692fc96fac4ab98bbea4c2397384367bc970a2e1771f2c86624475f3273970ecde8ff6df39d647e5c3f3263bf67a743e211c1958a96775edf53ece1f69ed337f0ab7fdc081c6c2b84e57b0922280d27f1da1bff47e77e3822fb1756e4c5cece9d220e6d0824ab9528e97e54f0cb09b352193b0e895344d894de11b3f5f9a2ec7d8fd6d0a4c487afd1896385a3ab9e8c3fcb3862ec0cad6ec10af1b574078eb7c79b558bcd85449a67079a0ee6da97fcbad074f1bf9fdfbdca12945336a8bd0a3b70b4c7708918cb83d10c7c4ff1f8b73275e9d1ba5d3db91069dffdf81eb7badf4e3c80" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:         "SigningSchemeV2 - emulator",
+			emulatorHost: "localhost:8000",
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV2,
+			},
+			want: "https://localhost:8000/" + bucketName + "/" + objectName +
+				"?Expires=1033570800" +
+				"&GoogleAccessId=xxx%40clientid" +
+				"&Signature=oRi3y2tBTmoDto7FezNx4AjC0RXA6fpJjTBa0hINeVroZ%2ByOeRU8MRwJbKg1IkBbV0IjtlPaGwv5YoUH16UYdipBjCXOS%2B1qgRWyzl8AnzvU%2BfwSXSlCk9zPtHHoBkFT7G4cZQOdDTLRrSG%2FmRJ3K09KEHYg%2Fc6R5Dd92inD1tLE2tiFMyHFs5uQHRMsepY4wrWiIQ4u53tPvk%2Fwiq1%2B9yL6x3QGblhdWwjX0BTVBOxexyKTlwczJW0XlWX8wpcTFfzQnJZuujbhanf2g9MGzSmkv3ylyuQdHMJDYp4Bzq%2FmnkNUg0Vp6iEvh9tyVdRNkwXeg3D8qn%2BFSOxcF%2B9vJw%3D%3D",
+		},
+		{
+			desc:         "SigningSchemeV2 - endpoint",
+			emulatorHost: "localhost:8000",
+			endpoint:     &localhost9000,
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV2,
+			},
+			want: "https://localhost:9000/" + bucketName + "/" + objectName +
+				"?Expires=1033570800" +
+				"&GoogleAccessId=xxx%40clientid" +
+				"&Signature=oRi3y2tBTmoDto7FezNx4AjC0RXA6fpJjTBa0hINeVroZ%2ByOeRU8MRwJbKg1IkBbV0IjtlPaGwv5YoUH16UYdipBjCXOS%2B1qgRWyzl8AnzvU%2BfwSXSlCk9zPtHHoBkFT7G4cZQOdDTLRrSG%2FmRJ3K09KEHYg%2Fc6R5Dd92inD1tLE2tiFMyHFs5uQHRMsepY4wrWiIQ4u53tPvk%2Fwiq1%2B9yL6x3QGblhdWwjX0BTVBOxexyKTlwczJW0XlWX8wpcTFfzQnJZuujbhanf2g9MGzSmkv3ylyuQdHMJDYp4Bzq%2FmnkNUg0Vp6iEvh9tyVdRNkwXeg3D8qn%2BFSOxcF%2B9vJw%3D%3D",
+		},
+		{
+			desc:         "VirtualHostedStyle - emulator",
+			emulatorHost: "localhost:8000",
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4,
+				Style:          VirtualHostedStyle(),
+				Insecure:       true,
+			},
+			want: "http://" + bucketName + ".localhost:8000/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=35e0b9d33901a2518956821175f88c2c4eb3f4461b725af74b37c36d23f8bbe927558ac57b0be40d345f20bca55ba0652d38b7a620f8da68d4f733706ad104da468c3a039459acf35f3022e388760cd49893c998c33fe3ccc8c022d7034ab98bdbdcac4b680bb24ae5ed586a42ee9495a873ffc484e297853a8a3892d0d6385c980cb7e3c5c8bdd4939b4c17105f10fe8b5b9744017bf59431ff176c1550ae1c64ddd6628096eb6895c97c5da4d850aca72c14b7f5018c15b34d4b00ec63ff2ccb688ddbef2d32648e247ffd0137498080f320f293eb811a94fb526227324bbbd01335446388797803e67d802f97b52565deba3d2387ecabf4f3094662236017" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:         "VirtualHostedStyle - endpoint overrides emulator",
+			emulatorHost: "localhost:8000",
+			endpoint:     &localhost9000,
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4,
+				Style:          VirtualHostedStyle(),
+				Insecure:       true,
+			},
+			want: "http://" + bucketName + ".localhost:9000/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=35e0b9d33901a2518956821175f88c2c4eb3f4461b725af74b37c36d23f8bbe927558ac57b0be40d345f20bca55ba0652d38b7a620f8da68d4f733706ad104da468c3a039459acf35f3022e388760cd49893c998c33fe3ccc8c022d7034ab98bdbdcac4b680bb24ae5ed586a42ee9495a873ffc484e297853a8a3892d0d6385c980cb7e3c5c8bdd4939b4c17105f10fe8b5b9744017bf59431ff176c1550ae1c64ddd6628096eb6895c97c5da4d850aca72c14b7f5018c15b34d4b00ec63ff2ccb688ddbef2d32648e247ffd0137498080f320f293eb811a94fb526227324bbbd01335446388797803e67d802f97b52565deba3d2387ecabf4f3094662236017" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:         "BucketBoundHostname - emulator",
+			emulatorHost: "localhost:8000",
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4,
+				Style:          BucketBoundHostname("myhost"),
+			},
+			want: "https://" + "myhost/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=15fe19f6c61bcbdbd6473c32f2bec29caa8a5fa3b2ce32cfb5329a71edaa0d4e5ffe6469f32ed4c23ca2fbed3882fdf1ed107c6a98c2c4995dda6036c64bae51e6cb542c353618f483832aa1f3ef85342ddadd69c13ad4c69fd3f573ea5cf325a58056e3d5a37005217662af63b49fef8688de3c5c7a2f7b43651a030edd0813eb7f7713989a4c29a8add65133ce652895fea9de7dbc6248ee11b4d7c6c1e152df87700100e896e544ba8eeea96584078f56e699665140b750e90550b9b79633f4e7c8409efa807be5670d6e987eeee04a4180be9b9e30bb8557597beaf390a3805cc602c87a3e34800f8bc01449c3dd10ac2f2263e55e55b91e445052548d5e" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:     "BucketBoundHostname - endpoint",
+			endpoint: &localhost9000,
+			now:      expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4,
+				Style:          BucketBoundHostname("myhost"),
+			},
+			want: "https://" + "myhost/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=15fe19f6c61bcbdbd6473c32f2bec29caa8a5fa3b2ce32cfb5329a71edaa0d4e5ffe6469f32ed4c23ca2fbed3882fdf1ed107c6a98c2c4995dda6036c64bae51e6cb542c353618f483832aa1f3ef85342ddadd69c13ad4c69fd3f573ea5cf325a58056e3d5a37005217662af63b49fef8688de3c5c7a2f7b43651a030edd0813eb7f7713989a4c29a8add65133ce652895fea9de7dbc6248ee11b4d7c6c1e152df87700100e896e544ba8eeea96584078f56e699665140b750e90550b9b79633f4e7c8409efa807be5670d6e987eeee04a4180be9b9e30bb8557597beaf390a3805cc602c87a3e34800f8bc01449c3dd10ac2f2263e55e55b91e445052548d5e" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:         "emulator host specifies scheme",
+			emulatorHost: "https://localhost:6000",
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4, //do v2 here
+				Insecure:       true,
+			},
+			want: "http://localhost:6000/" + bucketName + "/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=249c53142e57adf594b4f523a8a1f9c15f29b071e9abc0cf6665dbc5f692fc96fac4ab98bbea4c2397384367bc970a2e1771f2c86624475f3273970ecde8ff6df39d647e5c3f3263bf67a743e211c1958a96775edf53ece1f69ed337f0ab7fdc081c6c2b84e57b0922280d27f1da1bff47e77e3822fb1756e4c5cece9d220e6d0824ab9528e97e54f0cb09b352193b0e895344d894de11b3f5f9a2ec7d8fd6d0a4c487afd1896385a3ab9e8c3fcb3862ec0cad6ec10af1b574078eb7c79b558bcd85449a67079a0ee6da97fcbad074f1bf9fdfbdca12945336a8bd0a3b70b4c7708918cb83d10c7c4ff1f8b73275e9d1ba5d3db91069dffdf81eb7badf4e3c80" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:     "endpoint specifies scheme",
+			endpoint: &localhost6000Https,
+			now:      expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV4,
+				Insecure:       true,
+			},
+			want: "http://localhost:6000/" + bucketName + "/" + objectName +
+				"?X-Goog-Algorithm=GOOG4-RSA-SHA256" +
+				"&X-Goog-Credential=xxx%40clientid%2F20021001%2Fauto%2Fstorage%2Fgoog4_request" +
+				"&X-Goog-Date=20021001T100000Z&X-Goog-Expires=86400" +
+				"&X-Goog-Signature=249c53142e57adf594b4f523a8a1f9c15f29b071e9abc0cf6665dbc5f692fc96fac4ab98bbea4c2397384367bc970a2e1771f2c86624475f3273970ecde8ff6df39d647e5c3f3263bf67a743e211c1958a96775edf53ece1f69ed337f0ab7fdc081c6c2b84e57b0922280d27f1da1bff47e77e3822fb1756e4c5cece9d220e6d0824ab9528e97e54f0cb09b352193b0e895344d894de11b3f5f9a2ec7d8fd6d0a4c487afd1896385a3ab9e8c3fcb3862ec0cad6ec10af1b574078eb7c79b558bcd85449a67079a0ee6da97fcbad074f1bf9fdfbdca12945336a8bd0a3b70b4c7708918cb83d10c7c4ff1f8b73275e9d1ba5d3db91069dffdf81eb7badf4e3c80" +
+				"&X-Goog-SignedHeaders=host",
+		},
+		{
+			desc:         "emulator host specifies scheme using SigningSchemeV2",
+			emulatorHost: "https://localhost:8000",
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV2,
+			},
+			want: "https://localhost:8000/" + bucketName + "/" + objectName +
+				"?Expires=1033570800" +
+				"&GoogleAccessId=xxx%40clientid" +
+				"&Signature=oRi3y2tBTmoDto7FezNx4AjC0RXA6fpJjTBa0hINeVroZ%2ByOeRU8MRwJbKg1IkBbV0IjtlPaGwv5YoUH16UYdipBjCXOS%2B1qgRWyzl8AnzvU%2BfwSXSlCk9zPtHHoBkFT7G4cZQOdDTLRrSG%2FmRJ3K09KEHYg%2Fc6R5Dd92inD1tLE2tiFMyHFs5uQHRMsepY4wrWiIQ4u53tPvk%2Fwiq1%2B9yL6x3QGblhdWwjX0BTVBOxexyKTlwczJW0XlWX8wpcTFfzQnJZuujbhanf2g9MGzSmkv3ylyuQdHMJDYp4Bzq%2FmnkNUg0Vp6iEvh9tyVdRNkwXeg3D8qn%2BFSOxcF%2B9vJw%3D%3D",
+		},
+		{
+			desc:     "endpoint specifies scheme using SigningSchemeV2",
+			endpoint: &localhost6000Https,
+			now:      expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV2,
+			},
+			want: "https://localhost:6000/" + bucketName + "/" + objectName +
+				"?Expires=1033570800" +
+				"&GoogleAccessId=xxx%40clientid" +
+				"&Signature=oRi3y2tBTmoDto7FezNx4AjC0RXA6fpJjTBa0hINeVroZ%2ByOeRU8MRwJbKg1IkBbV0IjtlPaGwv5YoUH16UYdipBjCXOS%2B1qgRWyzl8AnzvU%2BfwSXSlCk9zPtHHoBkFT7G4cZQOdDTLRrSG%2FmRJ3K09KEHYg%2Fc6R5Dd92inD1tLE2tiFMyHFs5uQHRMsepY4wrWiIQ4u53tPvk%2Fwiq1%2B9yL6x3QGblhdWwjX0BTVBOxexyKTlwczJW0XlWX8wpcTFfzQnJZuujbhanf2g9MGzSmkv3ylyuQdHMJDYp4Bzq%2FmnkNUg0Vp6iEvh9tyVdRNkwXeg3D8qn%2BFSOxcF%2B9vJw%3D%3D",
+		},
+		{
+			desc:         "hostname in opts overrides all else",
+			endpoint:     &localhost9000,
+			emulatorHost: "https://localhost:8000",
+			now:          expires.Add(-24 * time.Hour),
+			opts: &SignedURLOptions{
+				GoogleAccessID: "xxx@clientid",
+				PrivateKey:     dummyKey("rsa"),
+				Method:         "POST",
+				Expires:        expires,
+				Scheme:         SigningSchemeV2,
+				Hostname:       "localhost:6000",
+			},
+			want: "https://localhost:6000/" + bucketName + "/" + objectName +
+				"?Expires=1033570800" +
+				"&GoogleAccessId=xxx%40clientid" +
+				"&Signature=oRi3y2tBTmoDto7FezNx4AjC0RXA6fpJjTBa0hINeVroZ%2ByOeRU8MRwJbKg1IkBbV0IjtlPaGwv5YoUH16UYdipBjCXOS%2B1qgRWyzl8AnzvU%2BfwSXSlCk9zPtHHoBkFT7G4cZQOdDTLRrSG%2FmRJ3K09KEHYg%2Fc6R5Dd92inD1tLE2tiFMyHFs5uQHRMsepY4wrWiIQ4u53tPvk%2Fwiq1%2B9yL6x3QGblhdWwjX0BTVBOxexyKTlwczJW0XlWX8wpcTFfzQnJZuujbhanf2g9MGzSmkv3ylyuQdHMJDYp4Bzq%2FmnkNUg0Vp6iEvh9tyVdRNkwXeg3D8qn%2BFSOxcF%2B9vJw%3D%3D",
+		},
+	}
+	oldUTCNow := utcNow
+	defer func() {
+		utcNow = oldUTCNow
+	}()
+
+	for _, test := range tests {
+		t.Run(test.desc, func(s *testing.T) {
+			utcNow = func() time.Time {
+				return test.now
+			}
+
+			t.Setenv("STORAGE_EMULATOR_HOST", test.emulatorHost)
+
+			var opts []option.ClientOption
+			if test.endpoint != nil {
+				opts = append(opts, option.WithEndpoint(*test.endpoint), option.WithoutAuthentication())
+			}
+			c, err := NewClient(context.Background(), opts...)
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+
+			got, err := c.Bucket(bucketName).SignedURL(objectName, test.opts)
+			if err != nil {
+				s.Fatal(err)
+			}
+
+			if got != test.want {
+				s.Fatalf("bucket.SidnedURL:\n\tgot:\t%v\n\twant:\t%v", got, test.want)
+			}
+		})
+	}
+}
+
+// Test retry logic for default SignBlob function used by BucketHandle.SignedURL.
+// This cannot be tested via the emulator so we use a mock.
+func TestDefaultSignBlobRetry(t *testing.T) {
+	ctx := context.Background()
+
+	// Use mock transport. Return 2 503 responses before succeeding.
+	mt := mockTransport{}
+	mt.addResult(&http.Response{StatusCode: 503, Body: bodyReader("")}, nil)
+	mt.addResult(&http.Response{StatusCode: 503, Body: bodyReader("")}, nil)
+	mt.addResult(&http.Response{StatusCode: 200, Body: bodyReader("{}")}, nil)
+
+	client, err := NewClient(ctx, option.WithHTTPClient(&http.Client{Transport: &mt}))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	b := client.Bucket("fakebucket")
+
+	if _, err := b.SignedURL("fakeobj", &SignedURLOptions{
+		Method:    "GET",
+		Expires:   time.Now().Add(time.Hour),
+		SignBytes: b.defaultSignBytesFunc("example@example.com"),
+	}); err != nil {
+		t.Fatalf("BucketHandle.SignedURL: %v", err)
 	}
 }

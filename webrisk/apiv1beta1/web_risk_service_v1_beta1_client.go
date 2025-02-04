@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ package webrisk
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -27,14 +27,12 @@ import (
 
 	webriskpb "cloud.google.com/go/webrisk/apiv1beta1/webriskpb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -50,10 +48,13 @@ type WebRiskServiceV1Beta1CallOptions struct {
 func defaultWebRiskServiceV1Beta1GRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("webrisk.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("webrisk.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("webrisk.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://webrisk.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -62,6 +63,7 @@ func defaultWebRiskServiceV1Beta1GRPCClientOptions() []option.ClientOption {
 func defaultWebRiskServiceV1Beta1CallOptions() *WebRiskServiceV1Beta1CallOptions {
 	return &WebRiskServiceV1Beta1CallOptions{
 		ComputeThreatListDiff: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.DeadlineExceeded,
@@ -74,6 +76,7 @@ func defaultWebRiskServiceV1Beta1CallOptions() *WebRiskServiceV1Beta1CallOptions
 			}),
 		},
 		SearchUris: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.DeadlineExceeded,
@@ -86,6 +89,7 @@ func defaultWebRiskServiceV1Beta1CallOptions() *WebRiskServiceV1Beta1CallOptions
 			}),
 		},
 		SearchHashes: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnCodes([]codes.Code{
 					codes.DeadlineExceeded,
@@ -103,6 +107,7 @@ func defaultWebRiskServiceV1Beta1CallOptions() *WebRiskServiceV1Beta1CallOptions
 func defaultWebRiskServiceV1Beta1RESTCallOptions() *WebRiskServiceV1Beta1CallOptions {
 	return &WebRiskServiceV1Beta1CallOptions{
 		ComputeThreatListDiff: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -114,6 +119,7 @@ func defaultWebRiskServiceV1Beta1RESTCallOptions() *WebRiskServiceV1Beta1CallOpt
 			}),
 		},
 		SearchUris: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -125,6 +131,7 @@ func defaultWebRiskServiceV1Beta1RESTCallOptions() *WebRiskServiceV1Beta1CallOpt
 			}),
 		},
 		SearchHashes: []gax.CallOption{
+			gax.WithTimeout(600000 * time.Millisecond),
 			gax.WithRetry(func() gax.Retryer {
 				return gax.OnHTTPCodes(gax.Backoff{
 					Initial:    100 * time.Millisecond,
@@ -210,9 +217,6 @@ type webRiskServiceV1Beta1GRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing WebRiskServiceV1Beta1Client
 	CallOptions **WebRiskServiceV1Beta1CallOptions
 
@@ -220,7 +224,9 @@ type webRiskServiceV1Beta1GRPCClient struct {
 	webRiskServiceV1Beta1Client webriskpb.WebRiskServiceV1Beta1Client
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewWebRiskServiceV1Beta1Client creates a new web risk service v1 beta1 client based on gRPC.
@@ -238,11 +244,6 @@ func NewWebRiskServiceV1Beta1Client(ctx context.Context, opts ...option.ClientOp
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -251,9 +252,9 @@ func NewWebRiskServiceV1Beta1Client(ctx context.Context, opts ...option.ClientOp
 
 	c := &webRiskServiceV1Beta1GRPCClient{
 		connPool:                    connPool,
-		disableDeadlines:            disableDeadlines,
 		webRiskServiceV1Beta1Client: webriskpb.NewWebRiskServiceV1Beta1Client(connPool),
 		CallOptions:                 &client.CallOptions,
+		logger:                      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -274,9 +275,11 @@ func (c *webRiskServiceV1Beta1GRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *webRiskServiceV1Beta1GRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -293,11 +296,13 @@ type webRiskServiceV1Beta1RESTClient struct {
 	// The http client.
 	httpClient *http.Client
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing WebRiskServiceV1Beta1Client
 	CallOptions **WebRiskServiceV1Beta1CallOptions
+
+	logger *slog.Logger
 }
 
 // NewWebRiskServiceV1Beta1RESTClient creates a new web risk service v1 beta1 rest client.
@@ -316,6 +321,7 @@ func NewWebRiskServiceV1Beta1RESTClient(ctx context.Context, opts ...option.Clie
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -325,9 +331,12 @@ func NewWebRiskServiceV1Beta1RESTClient(ctx context.Context, opts ...option.Clie
 func defaultWebRiskServiceV1Beta1RESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://webrisk.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://webrisk.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://webrisk.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://webrisk.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -335,9 +344,11 @@ func defaultWebRiskServiceV1Beta1RESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *webRiskServiceV1Beta1RESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -355,17 +366,12 @@ func (c *webRiskServiceV1Beta1RESTClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *webRiskServiceV1Beta1GRPCClient) ComputeThreatListDiff(ctx context.Context, req *webriskpb.ComputeThreatListDiffRequest, opts ...gax.CallOption) (*webriskpb.ComputeThreatListDiffResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).ComputeThreatListDiff[0:len((*c.CallOptions).ComputeThreatListDiff):len((*c.CallOptions).ComputeThreatListDiff)], opts...)
 	var resp *webriskpb.ComputeThreatListDiffResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.webRiskServiceV1Beta1Client.ComputeThreatListDiff(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.webRiskServiceV1Beta1Client.ComputeThreatListDiff, req, settings.GRPC, c.logger, "ComputeThreatListDiff")
 		return err
 	}, opts...)
 	if err != nil {
@@ -375,17 +381,12 @@ func (c *webRiskServiceV1Beta1GRPCClient) ComputeThreatListDiff(ctx context.Cont
 }
 
 func (c *webRiskServiceV1Beta1GRPCClient) SearchUris(ctx context.Context, req *webriskpb.SearchUrisRequest, opts ...gax.CallOption) (*webriskpb.SearchUrisResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).SearchUris[0:len((*c.CallOptions).SearchUris):len((*c.CallOptions).SearchUris)], opts...)
 	var resp *webriskpb.SearchUrisResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.webRiskServiceV1Beta1Client.SearchUris(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.webRiskServiceV1Beta1Client.SearchUris, req, settings.GRPC, c.logger, "SearchUris")
 		return err
 	}, opts...)
 	if err != nil {
@@ -395,17 +396,12 @@ func (c *webRiskServiceV1Beta1GRPCClient) SearchUris(ctx context.Context, req *w
 }
 
 func (c *webRiskServiceV1Beta1GRPCClient) SearchHashes(ctx context.Context, req *webriskpb.SearchHashesRequest, opts ...gax.CallOption) (*webriskpb.SearchHashesResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 600000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	ctx = insertMetadata(ctx, c.xGoogMetadata)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, c.xGoogHeaders...)
 	opts = append((*c.CallOptions).SearchHashes[0:len((*c.CallOptions).SearchHashes):len((*c.CallOptions).SearchHashes)], opts...)
 	var resp *webriskpb.SearchHashesResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.webRiskServiceV1Beta1Client.SearchHashes(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.webRiskServiceV1Beta1Client.SearchHashes, req, settings.GRPC, c.logger, "SearchHashes")
 		return err
 	}, opts...)
 	if err != nil {
@@ -423,14 +419,17 @@ func (c *webRiskServiceV1Beta1RESTClient) ComputeThreatListDiff(ctx context.Cont
 	baseUrl.Path += fmt.Sprintf("/v1beta1/threatLists:computeDiff")
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetConstraints().GetMaxDatabaseEntries() != 0 {
 		params.Add("constraints.maxDatabaseEntries", fmt.Sprintf("%v", req.GetConstraints().GetMaxDatabaseEntries()))
 	}
 	if req.GetConstraints().GetMaxDiffEntries() != 0 {
 		params.Add("constraints.maxDiffEntries", fmt.Sprintf("%v", req.GetConstraints().GetMaxDiffEntries()))
 	}
-	if req.GetConstraints().GetSupportedCompressions() != nil {
-		params.Add("constraints.supportedCompressions", fmt.Sprintf("%v", req.GetConstraints().GetSupportedCompressions()))
+	if items := req.GetConstraints().GetSupportedCompressions(); len(items) > 0 {
+		for _, item := range items {
+			params.Add("constraints.supportedCompressions", fmt.Sprintf("%v", item))
+		}
 	}
 	params.Add("threatType", fmt.Sprintf("%v", req.GetThreatType()))
 	if req.GetVersionToken() != nil {
@@ -440,7 +439,8 @@ func (c *webRiskServiceV1Beta1RESTClient) ComputeThreatListDiff(ctx context.Cont
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).ComputeThreatListDiff[0:len((*c.CallOptions).ComputeThreatListDiff):len((*c.CallOptions).ComputeThreatListDiff)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &webriskpb.ComputeThreatListDiffResponse{}
@@ -455,23 +455,13 @@ func (c *webRiskServiceV1Beta1RESTClient) ComputeThreatListDiff(ctx context.Cont
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ComputeThreatListDiff")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -491,15 +481,19 @@ func (c *webRiskServiceV1Beta1RESTClient) SearchUris(ctx context.Context, req *w
 	baseUrl.Path += fmt.Sprintf("/v1beta1/uris:search")
 
 	params := url.Values{}
-	if req.GetThreatTypes() != nil {
-		params.Add("threatTypes", fmt.Sprintf("%v", req.GetThreatTypes()))
+	params.Add("$alt", "json;enum-encoding=int")
+	if items := req.GetThreatTypes(); len(items) > 0 {
+		for _, item := range items {
+			params.Add("threatTypes", fmt.Sprintf("%v", item))
+		}
 	}
 	params.Add("uri", fmt.Sprintf("%v", req.GetUri()))
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).SearchUris[0:len((*c.CallOptions).SearchUris):len((*c.CallOptions).SearchUris)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &webriskpb.SearchUrisResponse{}
@@ -514,23 +508,13 @@ func (c *webRiskServiceV1Beta1RESTClient) SearchUris(ctx context.Context, req *w
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "SearchUris")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -554,17 +538,21 @@ func (c *webRiskServiceV1Beta1RESTClient) SearchHashes(ctx context.Context, req 
 	baseUrl.Path += fmt.Sprintf("/v1beta1/hashes:search")
 
 	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 	if req.GetHashPrefix() != nil {
 		params.Add("hashPrefix", fmt.Sprintf("%v", req.GetHashPrefix()))
 	}
-	if req.GetThreatTypes() != nil {
-		params.Add("threatTypes", fmt.Sprintf("%v", req.GetThreatTypes()))
+	if items := req.GetThreatTypes(); len(items) > 0 {
+		for _, item := range items {
+			params.Add("threatTypes", fmt.Sprintf("%v", item))
+		}
 	}
 
 	baseUrl.RawQuery = params.Encode()
 
 	// Build HTTP headers from client and context metadata.
-	headers := buildHeaders(ctx, c.xGoogMetadata, metadata.Pairs("Content-Type", "application/json"))
+	hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).SearchHashes[0:len((*c.CallOptions).SearchHashes):len((*c.CallOptions).SearchHashes)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &webriskpb.SearchHashesResponse{}
@@ -579,23 +567,13 @@ func (c *webRiskServiceV1Beta1RESTClient) SearchHashes(ctx context.Context, req 
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "SearchHashes")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil

@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2023 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -52,6 +52,7 @@ type ErrorStatsCallOptions struct {
 func defaultErrorStatsGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("clouderrorreporting.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("clouderrorreporting.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("clouderrorreporting.mtls.googleapis.com:443"),
 		internaloption.WithDefaultAudience("https://clouderrorreporting.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
@@ -272,7 +273,7 @@ func (c *errorStatsGRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *errorStatsGRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
 	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
 }
@@ -323,6 +324,7 @@ func NewErrorStatsRESTClient(ctx context.Context, opts ...option.ClientOption) (
 func defaultErrorStatsRESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://clouderrorreporting.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://clouderrorreporting.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://clouderrorreporting.mtls.googleapis.com"),
 		internaloption.WithDefaultAudience("https://clouderrorreporting.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
@@ -333,7 +335,7 @@ func defaultErrorStatsRESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *errorStatsRESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
 	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
 }
@@ -486,6 +488,7 @@ func (c *errorStatsRESTClient) ListGroupStats(ctx context.Context, req *errorrep
 		baseUrl.Path += fmt.Sprintf("/v1beta1/%v/groupStats", req.GetProjectName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		if req.GetAlignment() != 0 {
 			params.Add("alignment", fmt.Sprintf("%v", req.GetAlignment()))
 		}
@@ -496,8 +499,10 @@ func (c *errorStatsRESTClient) ListGroupStats(ctx context.Context, req *errorrep
 			}
 			params.Add("alignmentTime", string(alignmentTime))
 		}
-		if req.GetGroupId() != nil {
-			params.Add("groupId", fmt.Sprintf("%v", req.GetGroupId()))
+		if items := req.GetGroupId(); len(items) > 0 {
+			for _, item := range items {
+				params.Add("groupId", fmt.Sprintf("%v", item))
+			}
 		}
 		if req.GetOrder() != 0 {
 			params.Add("order", fmt.Sprintf("%v", req.GetOrder()))
@@ -558,7 +563,7 @@ func (c *errorStatsRESTClient) ListGroupStats(ctx context.Context, req *errorrep
 			}
 
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -608,6 +613,7 @@ func (c *errorStatsRESTClient) ListEvents(ctx context.Context, req *errorreporti
 		baseUrl.Path += fmt.Sprintf("/v1beta1/%v/events", req.GetProjectName())
 
 		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
 		params.Add("groupId", fmt.Sprintf("%v", req.GetGroupId()))
 		if req.GetPageSize() != 0 {
 			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
@@ -658,7 +664,7 @@ func (c *errorStatsRESTClient) ListEvents(ctx context.Context, req *errorreporti
 			}
 
 			if err := unm.Unmarshal(buf, resp); err != nil {
-				return maybeUnknownEnum(err)
+				return err
 			}
 
 			return nil
@@ -694,6 +700,11 @@ func (c *errorStatsRESTClient) DeleteEvents(ctx context.Context, req *errorrepor
 	}
 	baseUrl.Path += fmt.Sprintf("/v1beta1/%v/events", req.GetProjectName())
 
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
 	// Build HTTP headers from client and context metadata.
 	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "project_name", url.QueryEscape(req.GetProjectName())))
 
@@ -728,7 +739,7 @@ func (c *errorStatsRESTClient) DeleteEvents(ctx context.Context, req *errorrepor
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil

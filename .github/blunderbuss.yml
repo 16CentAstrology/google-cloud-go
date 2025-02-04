@@ -4,7 +4,7 @@ assign_issues_by:
   - 'api: datastore'
   - 'api: firestore'
   to:
-  - telpirion
+  - bhshkh
 - labels:
   - 'api: storage'
   to:
@@ -12,7 +12,7 @@ assign_issues_by:
 - labels:
   - 'api: bigquery'
   to:
-  - shollyman
+  - alvarowolfx
 - labels:
   - 'api: pubsub'
   to:
@@ -24,9 +24,13 @@ assign_issues_by:
 - labels:
   - 'api: spanner'
   to:
-  - rahul2393
+  - harshachinta
 - labels:
   - 'api: logging'
   - 'api: clouderrorreporting'
   to:
-  - googleapis/api-logging
+  - googleapis/api-logging-go-reviewers
+- labels:
+  - 'api: cloudprofiler'
+  to:
+  - googleapis/api-profiler

@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ package dataflow
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -27,13 +27,11 @@ import (
 
 	dataflowpb "cloud.google.com/go/dataflow/apiv1beta3/dataflowpb"
 	gax "github.com/googleapis/gax-go/v2"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
 	httptransport "google.golang.org/api/transport/http"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -49,10 +47,13 @@ type SnapshotsV1Beta3CallOptions struct {
 func defaultSnapshotsV1Beta3GRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("dataflow.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("dataflow.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("dataflow.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://dataflow.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -60,17 +61,29 @@ func defaultSnapshotsV1Beta3GRPCClientOptions() []option.ClientOption {
 
 func defaultSnapshotsV1Beta3CallOptions() *SnapshotsV1Beta3CallOptions {
 	return &SnapshotsV1Beta3CallOptions{
-		GetSnapshot:    []gax.CallOption{},
-		DeleteSnapshot: []gax.CallOption{},
-		ListSnapshots:  []gax.CallOption{},
+		GetSnapshot: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteSnapshot: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListSnapshots: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 	}
 }
 
 func defaultSnapshotsV1Beta3RESTCallOptions() *SnapshotsV1Beta3CallOptions {
 	return &SnapshotsV1Beta3CallOptions{
-		GetSnapshot:    []gax.CallOption{},
-		DeleteSnapshot: []gax.CallOption{},
-		ListSnapshots:  []gax.CallOption{},
+		GetSnapshot: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteSnapshot: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListSnapshots: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
 	}
 }
 
@@ -141,9 +154,6 @@ type snapshotsV1Beta3GRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
 
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
-
 	// Points back to the CallOptions field of the containing SnapshotsV1Beta3Client
 	CallOptions **SnapshotsV1Beta3CallOptions
 
@@ -151,7 +161,9 @@ type snapshotsV1Beta3GRPCClient struct {
 	snapshotsV1Beta3Client dataflowpb.SnapshotsV1Beta3Client
 
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewSnapshotsV1Beta3Client creates a new snapshots v1 beta3 client based on gRPC.
@@ -168,11 +180,6 @@ func NewSnapshotsV1Beta3Client(ctx context.Context, opts ...option.ClientOption)
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -181,9 +188,9 @@ func NewSnapshotsV1Beta3Client(ctx context.Context, opts ...option.ClientOption)
 
 	c := &snapshotsV1Beta3GRPCClient{
 		connPool:               connPool,
-		disableDeadlines:       disableDeadlines,
 		snapshotsV1Beta3Client: dataflowpb.NewSnapshotsV1Beta3Client(connPool),
 		CallOptions:            &client.CallOptions,
+		logger:                 internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -204,9 +211,11 @@ func (c *snapshotsV1Beta3GRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *snapshotsV1Beta3GRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -223,11 +232,13 @@ type snapshotsV1Beta3RESTClient struct {
 	// The http client.
 	httpClient *http.Client
 
-	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
 
 	// Points back to the CallOptions field of the containing SnapshotsV1Beta3Client
 	CallOptions **SnapshotsV1Beta3CallOptions
+
+	logger *slog.Logger
 }
 
 // NewSnapshotsV1Beta3RESTClient creates a new snapshots v1 beta3 rest client.
@@ -245,6 +256,7 @@ func NewSnapshotsV1Beta3RESTClient(ctx context.Context, opts ...option.ClientOpt
 		endpoint:    endpoint,
 		httpClient:  httpClient,
 		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
 	}
 	c.setGoogleClientInfo()
 
@@ -254,9 +266,12 @@ func NewSnapshotsV1Beta3RESTClient(ctx context.Context, opts ...option.ClientOpt
 func defaultSnapshotsV1Beta3RESTClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("https://dataflow.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://dataflow.UNIVERSE_DOMAIN"),
 		internaloption.WithDefaultMTLSEndpoint("https://dataflow.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://dataflow.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
 	}
 }
 
@@ -264,9 +279,11 @@ func defaultSnapshotsV1Beta3RESTClientOptions() []option.ClientOption {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *snapshotsV1Beta3RESTClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -284,19 +301,15 @@ func (c *snapshotsV1Beta3RESTClient) Connection() *grpc.ClientConn {
 	return nil
 }
 func (c *snapshotsV1Beta3GRPCClient) GetSnapshot(ctx context.Context, req *dataflowpb.GetSnapshotRequest, opts ...gax.CallOption) (*dataflowpb.Snapshot, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "snapshot_id", url.QueryEscape(req.GetSnapshotId())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "snapshot_id", url.QueryEscape(req.GetSnapshotId()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetSnapshot[0:len((*c.CallOptions).GetSnapshot):len((*c.CallOptions).GetSnapshot)], opts...)
 	var resp *dataflowpb.Snapshot
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.snapshotsV1Beta3Client.GetSnapshot(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.snapshotsV1Beta3Client.GetSnapshot, req, settings.GRPC, c.logger, "GetSnapshot")
 		return err
 	}, opts...)
 	if err != nil {
@@ -306,19 +319,15 @@ func (c *snapshotsV1Beta3GRPCClient) GetSnapshot(ctx context.Context, req *dataf
 }
 
 func (c *snapshotsV1Beta3GRPCClient) DeleteSnapshot(ctx context.Context, req *dataflowpb.DeleteSnapshotRequest, opts ...gax.CallOption) (*dataflowpb.DeleteSnapshotResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "snapshot_id", url.QueryEscape(req.GetSnapshotId())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "snapshot_id", url.QueryEscape(req.GetSnapshotId()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteSnapshot[0:len((*c.CallOptions).DeleteSnapshot):len((*c.CallOptions).DeleteSnapshot)], opts...)
 	var resp *dataflowpb.DeleteSnapshotResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.snapshotsV1Beta3Client.DeleteSnapshot(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.snapshotsV1Beta3Client.DeleteSnapshot, req, settings.GRPC, c.logger, "DeleteSnapshot")
 		return err
 	}, opts...)
 	if err != nil {
@@ -328,19 +337,15 @@ func (c *snapshotsV1Beta3GRPCClient) DeleteSnapshot(ctx context.Context, req *da
 }
 
 func (c *snapshotsV1Beta3GRPCClient) ListSnapshots(ctx context.Context, req *dataflowpb.ListSnapshotsRequest, opts ...gax.CallOption) (*dataflowpb.ListSnapshotsResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "job_id", url.QueryEscape(req.GetJobId())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "job_id", url.QueryEscape(req.GetJobId()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListSnapshots[0:len((*c.CallOptions).ListSnapshots):len((*c.CallOptions).ListSnapshots)], opts...)
 	var resp *dataflowpb.ListSnapshotsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.snapshotsV1Beta3Client.ListSnapshots(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.snapshotsV1Beta3Client.ListSnapshots, req, settings.GRPC, c.logger, "ListSnapshots")
 		return err
 	}, opts...)
 	if err != nil {
@@ -357,10 +362,17 @@ func (c *snapshotsV1Beta3RESTClient) GetSnapshot(ctx context.Context, req *dataf
 	}
 	baseUrl.Path += fmt.Sprintf("/v1b3/projects/%v/locations/%v/snapshots/%v", req.GetProjectId(), req.GetLocation(), req.GetSnapshotId())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "snapshot_id", url.QueryEscape(req.GetSnapshotId())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "snapshot_id", url.QueryEscape(req.GetSnapshotId()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).GetSnapshot[0:len((*c.CallOptions).GetSnapshot):len((*c.CallOptions).GetSnapshot)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataflowpb.Snapshot{}
@@ -375,23 +387,13 @@ func (c *snapshotsV1Beta3RESTClient) GetSnapshot(ctx context.Context, req *dataf
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetSnapshot")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -410,10 +412,17 @@ func (c *snapshotsV1Beta3RESTClient) DeleteSnapshot(ctx context.Context, req *da
 	}
 	baseUrl.Path += fmt.Sprintf("/v1b3/projects/%v/locations/%v/snapshots/%v", req.GetProjectId(), req.GetLocation(), req.GetSnapshotId())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "snapshot_id", url.QueryEscape(req.GetSnapshotId())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "snapshot_id", url.QueryEscape(req.GetSnapshotId()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteSnapshot[0:len((*c.CallOptions).DeleteSnapshot):len((*c.CallOptions).DeleteSnapshot)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataflowpb.DeleteSnapshotResponse{}
@@ -428,23 +437,13 @@ func (c *snapshotsV1Beta3RESTClient) DeleteSnapshot(ctx context.Context, req *da
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteSnapshot")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil
@@ -463,10 +462,17 @@ func (c *snapshotsV1Beta3RESTClient) ListSnapshots(ctx context.Context, req *dat
 	}
 	baseUrl.Path += fmt.Sprintf("/v1b3/projects/%v/locations/%v/jobs/%v/snapshots", req.GetProjectId(), req.GetLocation(), req.GetJobId())
 
-	// Build HTTP headers from client and context metadata.
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "job_id", url.QueryEscape(req.GetJobId())))
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
 
-	headers := buildHeaders(ctx, c.xGoogMetadata, md, metadata.Pairs("Content-Type", "application/json"))
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v&%s=%v&%s=%v", "project_id", url.QueryEscape(req.GetProjectId()), "location", url.QueryEscape(req.GetLocation()), "job_id", url.QueryEscape(req.GetJobId()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
 	opts = append((*c.CallOptions).ListSnapshots[0:len((*c.CallOptions).ListSnapshots):len((*c.CallOptions).ListSnapshots)], opts...)
 	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
 	resp := &dataflowpb.ListSnapshotsResponse{}
@@ -481,23 +487,13 @@ func (c *snapshotsV1Beta3RESTClient) ListSnapshots(ctx context.Context, req *dat
 		httpReq = httpReq.WithContext(ctx)
 		httpReq.Header = headers
 
-		httpRsp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return err
-		}
-		defer httpRsp.Body.Close()
-
-		if err = googleapi.CheckResponse(httpRsp); err != nil {
-			return err
-		}
-
-		buf, err := ioutil.ReadAll(httpRsp.Body)
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListSnapshots")
 		if err != nil {
 			return err
 		}
 
 		if err := unm.Unmarshal(buf, resp); err != nil {
-			return maybeUnknownEnum(err)
+			return err
 		}
 
 		return nil

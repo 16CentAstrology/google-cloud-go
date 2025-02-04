@@ -1,4 +1,4 @@
-// Copyright 2022 Google LLC
+// Copyright 2025 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,24 +17,29 @@
 package artifactregistry
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
+	"net/http"
 	"net/url"
 	"time"
 
 	artifactregistrypb "cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
+	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/longrunning"
 	lroauto "cloud.google.com/go/longrunning/autogen"
+	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	gax "github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	gtransport "google.golang.org/api/transport/grpc"
-	iampb "google.golang.org/genproto/googleapis/iam/v1"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
+	httptransport "google.golang.org/api/transport/http"
+	locationpb "google.golang.org/genproto/googleapis/cloud/location"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -44,6 +49,12 @@ var newClientHook clientHook
 type CallOptions struct {
 	ListDockerImages      []gax.CallOption
 	GetDockerImage        []gax.CallOption
+	ListMavenArtifacts    []gax.CallOption
+	GetMavenArtifact      []gax.CallOption
+	ListNpmPackages       []gax.CallOption
+	GetNpmPackage         []gax.CallOption
+	ListPythonPackages    []gax.CallOption
+	GetPythonPackage      []gax.CallOption
 	ImportAptArtifacts    []gax.CallOption
 	ImportYumArtifacts    []gax.CallOption
 	ListRepositories      []gax.CallOption
@@ -57,27 +68,49 @@ type CallOptions struct {
 	ListVersions          []gax.CallOption
 	GetVersion            []gax.CallOption
 	DeleteVersion         []gax.CallOption
+	BatchDeleteVersions   []gax.CallOption
+	UpdateVersion         []gax.CallOption
 	ListFiles             []gax.CallOption
 	GetFile               []gax.CallOption
+	DeleteFile            []gax.CallOption
+	UpdateFile            []gax.CallOption
 	ListTags              []gax.CallOption
 	GetTag                []gax.CallOption
 	CreateTag             []gax.CallOption
 	UpdateTag             []gax.CallOption
 	DeleteTag             []gax.CallOption
+	CreateRule            []gax.CallOption
+	ListRules             []gax.CallOption
+	GetRule               []gax.CallOption
+	UpdateRule            []gax.CallOption
+	DeleteRule            []gax.CallOption
 	SetIamPolicy          []gax.CallOption
 	GetIamPolicy          []gax.CallOption
 	TestIamPermissions    []gax.CallOption
 	GetProjectSettings    []gax.CallOption
 	UpdateProjectSettings []gax.CallOption
+	GetVPCSCConfig        []gax.CallOption
+	UpdateVPCSCConfig     []gax.CallOption
+	UpdatePackage         []gax.CallOption
+	ListAttachments       []gax.CallOption
+	GetAttachment         []gax.CallOption
+	CreateAttachment      []gax.CallOption
+	DeleteAttachment      []gax.CallOption
+	GetLocation           []gax.CallOption
+	ListLocations         []gax.CallOption
+	GetOperation          []gax.CallOption
 }
 
 func defaultGRPCClientOptions() []option.ClientOption {
 	return []option.ClientOption{
 		internaloption.WithDefaultEndpoint("artifactregistry.googleapis.com:443"),
+		internaloption.WithDefaultEndpointTemplate("artifactregistry.UNIVERSE_DOMAIN:443"),
 		internaloption.WithDefaultMTLSEndpoint("artifactregistry.mtls.googleapis.com:443"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
 		internaloption.WithDefaultAudience("https://artifactregistry.googleapis.com/"),
 		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
 		internaloption.EnableJwtWithScope(),
+		internaloption.EnableNewAuthLibrary(),
 		option.WithGRPCDialOption(grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(math.MaxInt32))),
 	}
@@ -85,33 +118,311 @@ func defaultGRPCClientOptions() []option.ClientOption {
 
 func defaultCallOptions() *CallOptions {
 	return &CallOptions{
-		ListDockerImages:      []gax.CallOption{},
-		GetDockerImage:        []gax.CallOption{},
-		ImportAptArtifacts:    []gax.CallOption{},
-		ImportYumArtifacts:    []gax.CallOption{},
-		ListRepositories:      []gax.CallOption{},
-		GetRepository:         []gax.CallOption{},
-		CreateRepository:      []gax.CallOption{},
-		UpdateRepository:      []gax.CallOption{},
-		DeleteRepository:      []gax.CallOption{},
-		ListPackages:          []gax.CallOption{},
-		GetPackage:            []gax.CallOption{},
-		DeletePackage:         []gax.CallOption{},
-		ListVersions:          []gax.CallOption{},
-		GetVersion:            []gax.CallOption{},
-		DeleteVersion:         []gax.CallOption{},
-		ListFiles:             []gax.CallOption{},
-		GetFile:               []gax.CallOption{},
-		ListTags:              []gax.CallOption{},
-		GetTag:                []gax.CallOption{},
-		CreateTag:             []gax.CallOption{},
-		UpdateTag:             []gax.CallOption{},
-		DeleteTag:             []gax.CallOption{},
-		SetIamPolicy:          []gax.CallOption{},
-		GetIamPolicy:          []gax.CallOption{},
-		TestIamPermissions:    []gax.CallOption{},
-		GetProjectSettings:    []gax.CallOption{},
-		UpdateProjectSettings: []gax.CallOption{},
+		ListDockerImages: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetDockerImage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListMavenArtifacts: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetMavenArtifact: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListNpmPackages: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetNpmPackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListPythonPackages: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetPythonPackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ImportAptArtifacts: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ImportYumArtifacts: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListRepositories: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetRepository: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateRepository: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateRepository: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteRepository: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListPackages: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetPackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeletePackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListVersions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		BatchDeleteVersions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListFiles: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetFile: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteFile: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateFile: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListTags: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateRule: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListRules: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetRule: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateRule: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteRule: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		SetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		TestIamPermissions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetProjectSettings: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateProjectSettings: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetVPCSCConfig: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateVPCSCConfig: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdatePackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListAttachments: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetAttachment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateAttachment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteAttachment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetLocation:   []gax.CallOption{},
+		ListLocations: []gax.CallOption{},
+		GetOperation:  []gax.CallOption{},
+	}
+}
+
+func defaultRESTCallOptions() *CallOptions {
+	return &CallOptions{
+		ListDockerImages: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetDockerImage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListMavenArtifacts: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetMavenArtifact: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListNpmPackages: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetNpmPackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListPythonPackages: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetPythonPackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ImportAptArtifacts: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ImportYumArtifacts: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListRepositories: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetRepository: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateRepository: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateRepository: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteRepository: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListPackages: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetPackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeletePackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListVersions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		BatchDeleteVersions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateVersion: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListFiles: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetFile: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteFile: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateFile: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListTags: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteTag: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateRule: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListRules: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetRule: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateRule: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteRule: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		SetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetIamPolicy: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		TestIamPermissions: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetProjectSettings: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateProjectSettings: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetVPCSCConfig: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdateVPCSCConfig: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		UpdatePackage: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		ListAttachments: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetAttachment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		CreateAttachment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		DeleteAttachment: []gax.CallOption{
+			gax.WithTimeout(60000 * time.Millisecond),
+		},
+		GetLocation:   []gax.CallOption{},
+		ListLocations: []gax.CallOption{},
+		GetOperation:  []gax.CallOption{},
 	}
 }
 
@@ -122,6 +433,12 @@ type internalClient interface {
 	Connection() *grpc.ClientConn
 	ListDockerImages(context.Context, *artifactregistrypb.ListDockerImagesRequest, ...gax.CallOption) *DockerImageIterator
 	GetDockerImage(context.Context, *artifactregistrypb.GetDockerImageRequest, ...gax.CallOption) (*artifactregistrypb.DockerImage, error)
+	ListMavenArtifacts(context.Context, *artifactregistrypb.ListMavenArtifactsRequest, ...gax.CallOption) *MavenArtifactIterator
+	GetMavenArtifact(context.Context, *artifactregistrypb.GetMavenArtifactRequest, ...gax.CallOption) (*artifactregistrypb.MavenArtifact, error)
+	ListNpmPackages(context.Context, *artifactregistrypb.ListNpmPackagesRequest, ...gax.CallOption) *NpmPackageIterator
+	GetNpmPackage(context.Context, *artifactregistrypb.GetNpmPackageRequest, ...gax.CallOption) (*artifactregistrypb.NpmPackage, error)
+	ListPythonPackages(context.Context, *artifactregistrypb.ListPythonPackagesRequest, ...gax.CallOption) *PythonPackageIterator
+	GetPythonPackage(context.Context, *artifactregistrypb.GetPythonPackageRequest, ...gax.CallOption) (*artifactregistrypb.PythonPackage, error)
 	ImportAptArtifacts(context.Context, *artifactregistrypb.ImportAptArtifactsRequest, ...gax.CallOption) (*ImportAptArtifactsOperation, error)
 	ImportAptArtifactsOperation(name string) *ImportAptArtifactsOperation
 	ImportYumArtifacts(context.Context, *artifactregistrypb.ImportYumArtifactsRequest, ...gax.CallOption) (*ImportYumArtifactsOperation, error)
@@ -141,18 +458,41 @@ type internalClient interface {
 	GetVersion(context.Context, *artifactregistrypb.GetVersionRequest, ...gax.CallOption) (*artifactregistrypb.Version, error)
 	DeleteVersion(context.Context, *artifactregistrypb.DeleteVersionRequest, ...gax.CallOption) (*DeleteVersionOperation, error)
 	DeleteVersionOperation(name string) *DeleteVersionOperation
+	BatchDeleteVersions(context.Context, *artifactregistrypb.BatchDeleteVersionsRequest, ...gax.CallOption) (*BatchDeleteVersionsOperation, error)
+	BatchDeleteVersionsOperation(name string) *BatchDeleteVersionsOperation
+	UpdateVersion(context.Context, *artifactregistrypb.UpdateVersionRequest, ...gax.CallOption) (*artifactregistrypb.Version, error)
 	ListFiles(context.Context, *artifactregistrypb.ListFilesRequest, ...gax.CallOption) *FileIterator
 	GetFile(context.Context, *artifactregistrypb.GetFileRequest, ...gax.CallOption) (*artifactregistrypb.File, error)
+	DeleteFile(context.Context, *artifactregistrypb.DeleteFileRequest, ...gax.CallOption) (*DeleteFileOperation, error)
+	DeleteFileOperation(name string) *DeleteFileOperation
+	UpdateFile(context.Context, *artifactregistrypb.UpdateFileRequest, ...gax.CallOption) (*artifactregistrypb.File, error)
 	ListTags(context.Context, *artifactregistrypb.ListTagsRequest, ...gax.CallOption) *TagIterator
 	GetTag(context.Context, *artifactregistrypb.GetTagRequest, ...gax.CallOption) (*artifactregistrypb.Tag, error)
 	CreateTag(context.Context, *artifactregistrypb.CreateTagRequest, ...gax.CallOption) (*artifactregistrypb.Tag, error)
 	UpdateTag(context.Context, *artifactregistrypb.UpdateTagRequest, ...gax.CallOption) (*artifactregistrypb.Tag, error)
 	DeleteTag(context.Context, *artifactregistrypb.DeleteTagRequest, ...gax.CallOption) error
+	CreateRule(context.Context, *artifactregistrypb.CreateRuleRequest, ...gax.CallOption) (*artifactregistrypb.Rule, error)
+	ListRules(context.Context, *artifactregistrypb.ListRulesRequest, ...gax.CallOption) *RuleIterator
+	GetRule(context.Context, *artifactregistrypb.GetRuleRequest, ...gax.CallOption) (*artifactregistrypb.Rule, error)
+	UpdateRule(context.Context, *artifactregistrypb.UpdateRuleRequest, ...gax.CallOption) (*artifactregistrypb.Rule, error)
+	DeleteRule(context.Context, *artifactregistrypb.DeleteRuleRequest, ...gax.CallOption) error
 	SetIamPolicy(context.Context, *iampb.SetIamPolicyRequest, ...gax.CallOption) (*iampb.Policy, error)
 	GetIamPolicy(context.Context, *iampb.GetIamPolicyRequest, ...gax.CallOption) (*iampb.Policy, error)
 	TestIamPermissions(context.Context, *iampb.TestIamPermissionsRequest, ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error)
 	GetProjectSettings(context.Context, *artifactregistrypb.GetProjectSettingsRequest, ...gax.CallOption) (*artifactregistrypb.ProjectSettings, error)
 	UpdateProjectSettings(context.Context, *artifactregistrypb.UpdateProjectSettingsRequest, ...gax.CallOption) (*artifactregistrypb.ProjectSettings, error)
+	GetVPCSCConfig(context.Context, *artifactregistrypb.GetVPCSCConfigRequest, ...gax.CallOption) (*artifactregistrypb.VPCSCConfig, error)
+	UpdateVPCSCConfig(context.Context, *artifactregistrypb.UpdateVPCSCConfigRequest, ...gax.CallOption) (*artifactregistrypb.VPCSCConfig, error)
+	UpdatePackage(context.Context, *artifactregistrypb.UpdatePackageRequest, ...gax.CallOption) (*artifactregistrypb.Package, error)
+	ListAttachments(context.Context, *artifactregistrypb.ListAttachmentsRequest, ...gax.CallOption) *AttachmentIterator
+	GetAttachment(context.Context, *artifactregistrypb.GetAttachmentRequest, ...gax.CallOption) (*artifactregistrypb.Attachment, error)
+	CreateAttachment(context.Context, *artifactregistrypb.CreateAttachmentRequest, ...gax.CallOption) (*CreateAttachmentOperation, error)
+	CreateAttachmentOperation(name string) *CreateAttachmentOperation
+	DeleteAttachment(context.Context, *artifactregistrypb.DeleteAttachmentRequest, ...gax.CallOption) (*DeleteAttachmentOperation, error)
+	DeleteAttachmentOperation(name string) *DeleteAttachmentOperation
+	GetLocation(context.Context, *locationpb.GetLocationRequest, ...gax.CallOption) (*locationpb.Location, error)
+	ListLocations(context.Context, *locationpb.ListLocationsRequest, ...gax.CallOption) *LocationIterator
+	GetOperation(context.Context, *longrunningpb.GetOperationRequest, ...gax.CallOption) (*longrunningpb.Operation, error)
 }
 
 // Client is a client for interacting with Artifact Registry API.
@@ -219,6 +559,36 @@ func (c *Client) ListDockerImages(ctx context.Context, req *artifactregistrypb.L
 // GetDockerImage gets a docker image.
 func (c *Client) GetDockerImage(ctx context.Context, req *artifactregistrypb.GetDockerImageRequest, opts ...gax.CallOption) (*artifactregistrypb.DockerImage, error) {
 	return c.internalClient.GetDockerImage(ctx, req, opts...)
+}
+
+// ListMavenArtifacts lists maven artifacts.
+func (c *Client) ListMavenArtifacts(ctx context.Context, req *artifactregistrypb.ListMavenArtifactsRequest, opts ...gax.CallOption) *MavenArtifactIterator {
+	return c.internalClient.ListMavenArtifacts(ctx, req, opts...)
+}
+
+// GetMavenArtifact gets a maven artifact.
+func (c *Client) GetMavenArtifact(ctx context.Context, req *artifactregistrypb.GetMavenArtifactRequest, opts ...gax.CallOption) (*artifactregistrypb.MavenArtifact, error) {
+	return c.internalClient.GetMavenArtifact(ctx, req, opts...)
+}
+
+// ListNpmPackages lists npm packages.
+func (c *Client) ListNpmPackages(ctx context.Context, req *artifactregistrypb.ListNpmPackagesRequest, opts ...gax.CallOption) *NpmPackageIterator {
+	return c.internalClient.ListNpmPackages(ctx, req, opts...)
+}
+
+// GetNpmPackage gets a npm package.
+func (c *Client) GetNpmPackage(ctx context.Context, req *artifactregistrypb.GetNpmPackageRequest, opts ...gax.CallOption) (*artifactregistrypb.NpmPackage, error) {
+	return c.internalClient.GetNpmPackage(ctx, req, opts...)
+}
+
+// ListPythonPackages lists python packages.
+func (c *Client) ListPythonPackages(ctx context.Context, req *artifactregistrypb.ListPythonPackagesRequest, opts ...gax.CallOption) *PythonPackageIterator {
+	return c.internalClient.ListPythonPackages(ctx, req, opts...)
+}
+
+// GetPythonPackage gets a python package.
+func (c *Client) GetPythonPackage(ctx context.Context, req *artifactregistrypb.GetPythonPackageRequest, opts ...gax.CallOption) (*artifactregistrypb.PythonPackage, error) {
+	return c.internalClient.GetPythonPackage(ctx, req, opts...)
 }
 
 // ImportAptArtifacts imports Apt artifacts. The returned Operation will complete once the
@@ -333,6 +703,23 @@ func (c *Client) DeleteVersionOperation(name string) *DeleteVersionOperation {
 	return c.internalClient.DeleteVersionOperation(name)
 }
 
+// BatchDeleteVersions deletes multiple versions across a repository. The returned operation will
+// complete once the versions have been deleted.
+func (c *Client) BatchDeleteVersions(ctx context.Context, req *artifactregistrypb.BatchDeleteVersionsRequest, opts ...gax.CallOption) (*BatchDeleteVersionsOperation, error) {
+	return c.internalClient.BatchDeleteVersions(ctx, req, opts...)
+}
+
+// BatchDeleteVersionsOperation returns a new BatchDeleteVersionsOperation from a given name.
+// The name must be that of a previously created BatchDeleteVersionsOperation, possibly from a different process.
+func (c *Client) BatchDeleteVersionsOperation(name string) *BatchDeleteVersionsOperation {
+	return c.internalClient.BatchDeleteVersionsOperation(name)
+}
+
+// UpdateVersion updates a version.
+func (c *Client) UpdateVersion(ctx context.Context, req *artifactregistrypb.UpdateVersionRequest, opts ...gax.CallOption) (*artifactregistrypb.Version, error) {
+	return c.internalClient.UpdateVersion(ctx, req, opts...)
+}
+
 // ListFiles lists files.
 func (c *Client) ListFiles(ctx context.Context, req *artifactregistrypb.ListFilesRequest, opts ...gax.CallOption) *FileIterator {
 	return c.internalClient.ListFiles(ctx, req, opts...)
@@ -341,6 +728,24 @@ func (c *Client) ListFiles(ctx context.Context, req *artifactregistrypb.ListFile
 // GetFile gets a file.
 func (c *Client) GetFile(ctx context.Context, req *artifactregistrypb.GetFileRequest, opts ...gax.CallOption) (*artifactregistrypb.File, error) {
 	return c.internalClient.GetFile(ctx, req, opts...)
+}
+
+// DeleteFile deletes a file and all of its content. It is only allowed on generic
+// repositories. The returned operation will complete once the file has been
+// deleted.
+func (c *Client) DeleteFile(ctx context.Context, req *artifactregistrypb.DeleteFileRequest, opts ...gax.CallOption) (*DeleteFileOperation, error) {
+	return c.internalClient.DeleteFile(ctx, req, opts...)
+}
+
+// DeleteFileOperation returns a new DeleteFileOperation from a given name.
+// The name must be that of a previously created DeleteFileOperation, possibly from a different process.
+func (c *Client) DeleteFileOperation(name string) *DeleteFileOperation {
+	return c.internalClient.DeleteFileOperation(name)
+}
+
+// UpdateFile updates a file.
+func (c *Client) UpdateFile(ctx context.Context, req *artifactregistrypb.UpdateFileRequest, opts ...gax.CallOption) (*artifactregistrypb.File, error) {
+	return c.internalClient.UpdateFile(ctx, req, opts...)
 }
 
 // ListTags lists tags.
@@ -368,6 +773,31 @@ func (c *Client) DeleteTag(ctx context.Context, req *artifactregistrypb.DeleteTa
 	return c.internalClient.DeleteTag(ctx, req, opts...)
 }
 
+// CreateRule creates a rule.
+func (c *Client) CreateRule(ctx context.Context, req *artifactregistrypb.CreateRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	return c.internalClient.CreateRule(ctx, req, opts...)
+}
+
+// ListRules lists rules.
+func (c *Client) ListRules(ctx context.Context, req *artifactregistrypb.ListRulesRequest, opts ...gax.CallOption) *RuleIterator {
+	return c.internalClient.ListRules(ctx, req, opts...)
+}
+
+// GetRule gets a rule.
+func (c *Client) GetRule(ctx context.Context, req *artifactregistrypb.GetRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	return c.internalClient.GetRule(ctx, req, opts...)
+}
+
+// UpdateRule updates a rule.
+func (c *Client) UpdateRule(ctx context.Context, req *artifactregistrypb.UpdateRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	return c.internalClient.UpdateRule(ctx, req, opts...)
+}
+
+// DeleteRule deletes a rule.
+func (c *Client) DeleteRule(ctx context.Context, req *artifactregistrypb.DeleteRuleRequest, opts ...gax.CallOption) error {
+	return c.internalClient.DeleteRule(ctx, req, opts...)
+}
+
 // SetIamPolicy updates the IAM policy for a given resource.
 func (c *Client) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
 	return c.internalClient.SetIamPolicy(ctx, req, opts...)
@@ -393,15 +823,77 @@ func (c *Client) UpdateProjectSettings(ctx context.Context, req *artifactregistr
 	return c.internalClient.UpdateProjectSettings(ctx, req, opts...)
 }
 
+// GetVPCSCConfig retrieves the VPCSC Config for the Project.
+func (c *Client) GetVPCSCConfig(ctx context.Context, req *artifactregistrypb.GetVPCSCConfigRequest, opts ...gax.CallOption) (*artifactregistrypb.VPCSCConfig, error) {
+	return c.internalClient.GetVPCSCConfig(ctx, req, opts...)
+}
+
+// UpdateVPCSCConfig updates the VPCSC Config for the Project.
+func (c *Client) UpdateVPCSCConfig(ctx context.Context, req *artifactregistrypb.UpdateVPCSCConfigRequest, opts ...gax.CallOption) (*artifactregistrypb.VPCSCConfig, error) {
+	return c.internalClient.UpdateVPCSCConfig(ctx, req, opts...)
+}
+
+// UpdatePackage updates a package.
+func (c *Client) UpdatePackage(ctx context.Context, req *artifactregistrypb.UpdatePackageRequest, opts ...gax.CallOption) (*artifactregistrypb.Package, error) {
+	return c.internalClient.UpdatePackage(ctx, req, opts...)
+}
+
+// ListAttachments lists attachments.
+func (c *Client) ListAttachments(ctx context.Context, req *artifactregistrypb.ListAttachmentsRequest, opts ...gax.CallOption) *AttachmentIterator {
+	return c.internalClient.ListAttachments(ctx, req, opts...)
+}
+
+// GetAttachment gets an attachment.
+func (c *Client) GetAttachment(ctx context.Context, req *artifactregistrypb.GetAttachmentRequest, opts ...gax.CallOption) (*artifactregistrypb.Attachment, error) {
+	return c.internalClient.GetAttachment(ctx, req, opts...)
+}
+
+// CreateAttachment creates an attachment. The returned Operation will finish once the
+// attachment has been created. Its response will be the created attachment.
+func (c *Client) CreateAttachment(ctx context.Context, req *artifactregistrypb.CreateAttachmentRequest, opts ...gax.CallOption) (*CreateAttachmentOperation, error) {
+	return c.internalClient.CreateAttachment(ctx, req, opts...)
+}
+
+// CreateAttachmentOperation returns a new CreateAttachmentOperation from a given name.
+// The name must be that of a previously created CreateAttachmentOperation, possibly from a different process.
+func (c *Client) CreateAttachmentOperation(name string) *CreateAttachmentOperation {
+	return c.internalClient.CreateAttachmentOperation(name)
+}
+
+// DeleteAttachment deletes an attachment. The returned Operation will
+// finish once the attachments has been deleted. It will not have any
+// Operation metadata and will return a google.protobuf.Empty response.
+func (c *Client) DeleteAttachment(ctx context.Context, req *artifactregistrypb.DeleteAttachmentRequest, opts ...gax.CallOption) (*DeleteAttachmentOperation, error) {
+	return c.internalClient.DeleteAttachment(ctx, req, opts...)
+}
+
+// DeleteAttachmentOperation returns a new DeleteAttachmentOperation from a given name.
+// The name must be that of a previously created DeleteAttachmentOperation, possibly from a different process.
+func (c *Client) DeleteAttachmentOperation(name string) *DeleteAttachmentOperation {
+	return c.internalClient.DeleteAttachmentOperation(name)
+}
+
+// GetLocation gets information about a location.
+func (c *Client) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
+	return c.internalClient.GetLocation(ctx, req, opts...)
+}
+
+// ListLocations lists information about the supported locations for this service.
+func (c *Client) ListLocations(ctx context.Context, req *locationpb.ListLocationsRequest, opts ...gax.CallOption) *LocationIterator {
+	return c.internalClient.ListLocations(ctx, req, opts...)
+}
+
+// GetOperation is a utility method from google.longrunning.Operations.
+func (c *Client) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
+	return c.internalClient.GetOperation(ctx, req, opts...)
+}
+
 // gRPCClient is a client for interacting with Artifact Registry API over gRPC transport.
 //
 // Methods, except Close, may be called concurrently. However, fields must not be modified concurrently with method calls.
 type gRPCClient struct {
 	// Connection pool of gRPC connections to the service.
 	connPool gtransport.ConnPool
-
-	// flag to opt out of default deadlines via GOOGLE_API_GO_EXPERIMENTAL_DISABLE_DEFAULT_DEADLINE
-	disableDeadlines bool
 
 	// Points back to the CallOptions field of the containing Client
 	CallOptions **CallOptions
@@ -414,8 +906,14 @@ type gRPCClient struct {
 	// Users should not Close this client.
 	LROClient **lroauto.OperationsClient
 
+	operationsClient longrunningpb.OperationsClient
+
+	locationsClient locationpb.LocationsClient
+
 	// The x-goog-* metadata to be sent with each request.
-	xGoogMetadata metadata.MD
+	xGoogHeaders []string
+
+	logger *slog.Logger
 }
 
 // NewClient creates a new artifact registry client based on gRPC.
@@ -448,11 +946,6 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 		clientOpts = append(clientOpts, hookOpts...)
 	}
 
-	disableDeadlines, err := checkDisableDeadlines()
-	if err != nil {
-		return nil, err
-	}
-
 	connPool, err := gtransport.DialPool(ctx, append(clientOpts, opts...)...)
 	if err != nil {
 		return nil, err
@@ -461,9 +954,11 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 
 	c := &gRPCClient{
 		connPool:         connPool,
-		disableDeadlines: disableDeadlines,
 		client:           artifactregistrypb.NewArtifactRegistryClient(connPool),
 		CallOptions:      &client.CallOptions,
+		logger:           internaloption.GetLogger(opts),
+		operationsClient: longrunningpb.NewOperationsClient(connPool),
+		locationsClient:  locationpb.NewLocationsClient(connPool),
 	}
 	c.setGoogleClientInfo()
 
@@ -495,9 +990,11 @@ func (c *gRPCClient) Connection() *grpc.ClientConn {
 // the `x-goog-api-client` header passed on each request. Intended for
 // use by Google-written clients.
 func (c *gRPCClient) setGoogleClientInfo(keyval ...string) {
-	kv := append([]string{"gl-go", versionGo()}, keyval...)
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
 	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "grpc", grpc.Version)
-	c.xGoogMetadata = metadata.Pairs("x-goog-api-client", gax.XGoogHeader(kv...))
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
 }
 
 // Close closes the connection to the API service. The user should invoke this when
@@ -506,10 +1003,118 @@ func (c *gRPCClient) Close() error {
 	return c.connPool.Close()
 }
 
-func (c *gRPCClient) ListDockerImages(ctx context.Context, req *artifactregistrypb.ListDockerImagesRequest, opts ...gax.CallOption) *DockerImageIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+// Methods, except Close, may be called concurrently. However, fields must not be modified concurrently with method calls.
+type restClient struct {
+	// The http endpoint to connect to.
+	endpoint string
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	// The http client.
+	httpClient *http.Client
+
+	// LROClient is used internally to handle long-running operations.
+	// It is exposed so that its CallOptions can be modified if required.
+	// Users should not Close this client.
+	LROClient **lroauto.OperationsClient
+
+	// The x-goog-* headers to be sent with each request.
+	xGoogHeaders []string
+
+	// Points back to the CallOptions field of the containing Client
+	CallOptions **CallOptions
+
+	logger *slog.Logger
+}
+
+// NewRESTClient creates a new artifact registry rest client.
+//
+// The Artifact Registry API service.
+//
+// Artifact Registry is an artifact management system for storing artifacts
+// from different package management systems.
+//
+// The resources managed by this API are:
+//
+//	Repositories, which group packages and their data.
+//
+//	Packages, which group versions and their tags.
+//
+//	Versions, which are specific forms of a package.
+//
+//	Tags, which represent alternative names for versions.
+//
+//	Files, which contain content and are optionally associated with a Package
+//	or Version.
+func NewRESTClient(ctx context.Context, opts ...option.ClientOption) (*Client, error) {
+	clientOpts := append(defaultRESTClientOptions(), opts...)
+	httpClient, endpoint, err := httptransport.NewClient(ctx, clientOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	callOpts := defaultRESTCallOptions()
+	c := &restClient{
+		endpoint:    endpoint,
+		httpClient:  httpClient,
+		CallOptions: &callOpts,
+		logger:      internaloption.GetLogger(opts),
+	}
+	c.setGoogleClientInfo()
+
+	lroOpts := []option.ClientOption{
+		option.WithHTTPClient(httpClient),
+		option.WithEndpoint(endpoint),
+	}
+	opClient, err := lroauto.NewOperationsRESTClient(ctx, lroOpts...)
+	if err != nil {
+		return nil, err
+	}
+	c.LROClient = &opClient
+
+	return &Client{internalClient: c, CallOptions: callOpts}, nil
+}
+
+func defaultRESTClientOptions() []option.ClientOption {
+	return []option.ClientOption{
+		internaloption.WithDefaultEndpoint("https://artifactregistry.googleapis.com"),
+		internaloption.WithDefaultEndpointTemplate("https://artifactregistry.UNIVERSE_DOMAIN"),
+		internaloption.WithDefaultMTLSEndpoint("https://artifactregistry.mtls.googleapis.com"),
+		internaloption.WithDefaultUniverseDomain("googleapis.com"),
+		internaloption.WithDefaultAudience("https://artifactregistry.googleapis.com/"),
+		internaloption.WithDefaultScopes(DefaultAuthScopes()...),
+		internaloption.EnableNewAuthLibrary(),
+	}
+}
+
+// setGoogleClientInfo sets the name and version of the application in
+// the `x-goog-api-client` header passed on each request. Intended for
+// use by Google-written clients.
+func (c *restClient) setGoogleClientInfo(keyval ...string) {
+	kv := append([]string{"gl-go", gax.GoVersion}, keyval...)
+	kv = append(kv, "gapic", getVersionClient(), "gax", gax.Version, "rest", "UNKNOWN")
+	c.xGoogHeaders = []string{
+		"x-goog-api-client", gax.XGoogHeader(kv...),
+	}
+}
+
+// Close closes the connection to the API service. The user should invoke this when
+// the client is no longer required.
+func (c *restClient) Close() error {
+	// Replace httpClient with nil to force cleanup.
+	c.httpClient = nil
+	return nil
+}
+
+// Connection returns a connection to the API service.
+//
+// Deprecated: This method always returns nil.
+func (c *restClient) Connection() *grpc.ClientConn {
+	return nil
+}
+func (c *gRPCClient) ListDockerImages(ctx context.Context, req *artifactregistrypb.ListDockerImagesRequest, opts ...gax.CallOption) *DockerImageIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListDockerImages[0:len((*c.CallOptions).ListDockerImages):len((*c.CallOptions).ListDockerImages)], opts...)
 	it := &DockerImageIterator{}
 	req = proto.Clone(req).(*artifactregistrypb.ListDockerImagesRequest)
@@ -525,7 +1130,7 @@ func (c *gRPCClient) ListDockerImages(ctx context.Context, req *artifactregistry
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListDockerImages(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListDockerImages, req, settings.GRPC, c.logger, "ListDockerImages")
 			return err
 		}, opts...)
 		if err != nil {
@@ -552,19 +1157,207 @@ func (c *gRPCClient) ListDockerImages(ctx context.Context, req *artifactregistry
 }
 
 func (c *gRPCClient) GetDockerImage(ctx context.Context, req *artifactregistrypb.GetDockerImageRequest, opts ...gax.CallOption) (*artifactregistrypb.DockerImage, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetDockerImage[0:len((*c.CallOptions).GetDockerImage):len((*c.CallOptions).GetDockerImage)], opts...)
 	var resp *artifactregistrypb.DockerImage
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetDockerImage(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetDockerImage, req, settings.GRPC, c.logger, "GetDockerImage")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) ListMavenArtifacts(ctx context.Context, req *artifactregistrypb.ListMavenArtifactsRequest, opts ...gax.CallOption) *MavenArtifactIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).ListMavenArtifacts[0:len((*c.CallOptions).ListMavenArtifacts):len((*c.CallOptions).ListMavenArtifacts)], opts...)
+	it := &MavenArtifactIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListMavenArtifactsRequest)
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.MavenArtifact, string, error) {
+		resp := &artifactregistrypb.ListMavenArtifactsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			var err error
+			resp, err = executeRPC(ctx, c.client.ListMavenArtifacts, req, settings.GRPC, c.logger, "ListMavenArtifacts")
+			return err
+		}, opts...)
+		if err != nil {
+			return nil, "", err
+		}
+
+		it.Response = resp
+		return resp.GetMavenArtifacts(), resp.GetNextPageToken(), nil
+	}
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+func (c *gRPCClient) GetMavenArtifact(ctx context.Context, req *artifactregistrypb.GetMavenArtifactRequest, opts ...gax.CallOption) (*artifactregistrypb.MavenArtifact, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetMavenArtifact[0:len((*c.CallOptions).GetMavenArtifact):len((*c.CallOptions).GetMavenArtifact)], opts...)
+	var resp *artifactregistrypb.MavenArtifact
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.GetMavenArtifact, req, settings.GRPC, c.logger, "GetMavenArtifact")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) ListNpmPackages(ctx context.Context, req *artifactregistrypb.ListNpmPackagesRequest, opts ...gax.CallOption) *NpmPackageIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).ListNpmPackages[0:len((*c.CallOptions).ListNpmPackages):len((*c.CallOptions).ListNpmPackages)], opts...)
+	it := &NpmPackageIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListNpmPackagesRequest)
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.NpmPackage, string, error) {
+		resp := &artifactregistrypb.ListNpmPackagesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			var err error
+			resp, err = executeRPC(ctx, c.client.ListNpmPackages, req, settings.GRPC, c.logger, "ListNpmPackages")
+			return err
+		}, opts...)
+		if err != nil {
+			return nil, "", err
+		}
+
+		it.Response = resp
+		return resp.GetNpmPackages(), resp.GetNextPageToken(), nil
+	}
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+func (c *gRPCClient) GetNpmPackage(ctx context.Context, req *artifactregistrypb.GetNpmPackageRequest, opts ...gax.CallOption) (*artifactregistrypb.NpmPackage, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetNpmPackage[0:len((*c.CallOptions).GetNpmPackage):len((*c.CallOptions).GetNpmPackage)], opts...)
+	var resp *artifactregistrypb.NpmPackage
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.GetNpmPackage, req, settings.GRPC, c.logger, "GetNpmPackage")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) ListPythonPackages(ctx context.Context, req *artifactregistrypb.ListPythonPackagesRequest, opts ...gax.CallOption) *PythonPackageIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).ListPythonPackages[0:len((*c.CallOptions).ListPythonPackages):len((*c.CallOptions).ListPythonPackages)], opts...)
+	it := &PythonPackageIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListPythonPackagesRequest)
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.PythonPackage, string, error) {
+		resp := &artifactregistrypb.ListPythonPackagesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			var err error
+			resp, err = executeRPC(ctx, c.client.ListPythonPackages, req, settings.GRPC, c.logger, "ListPythonPackages")
+			return err
+		}, opts...)
+		if err != nil {
+			return nil, "", err
+		}
+
+		it.Response = resp
+		return resp.GetPythonPackages(), resp.GetNextPageToken(), nil
+	}
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+func (c *gRPCClient) GetPythonPackage(ctx context.Context, req *artifactregistrypb.GetPythonPackageRequest, opts ...gax.CallOption) (*artifactregistrypb.PythonPackage, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetPythonPackage[0:len((*c.CallOptions).GetPythonPackage):len((*c.CallOptions).GetPythonPackage)], opts...)
+	var resp *artifactregistrypb.PythonPackage
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.GetPythonPackage, req, settings.GRPC, c.logger, "GetPythonPackage")
 		return err
 	}, opts...)
 	if err != nil {
@@ -574,19 +1367,15 @@ func (c *gRPCClient) GetDockerImage(ctx context.Context, req *artifactregistrypb
 }
 
 func (c *gRPCClient) ImportAptArtifacts(ctx context.Context, req *artifactregistrypb.ImportAptArtifactsRequest, opts ...gax.CallOption) (*ImportAptArtifactsOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ImportAptArtifacts[0:len((*c.CallOptions).ImportAptArtifacts):len((*c.CallOptions).ImportAptArtifacts)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.ImportAptArtifacts(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.ImportAptArtifacts, req, settings.GRPC, c.logger, "ImportAptArtifacts")
 		return err
 	}, opts...)
 	if err != nil {
@@ -598,19 +1387,15 @@ func (c *gRPCClient) ImportAptArtifacts(ctx context.Context, req *artifactregist
 }
 
 func (c *gRPCClient) ImportYumArtifacts(ctx context.Context, req *artifactregistrypb.ImportYumArtifactsRequest, opts ...gax.CallOption) (*ImportYumArtifactsOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ImportYumArtifacts[0:len((*c.CallOptions).ImportYumArtifacts):len((*c.CallOptions).ImportYumArtifacts)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.ImportYumArtifacts(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.ImportYumArtifacts, req, settings.GRPC, c.logger, "ImportYumArtifacts")
 		return err
 	}, opts...)
 	if err != nil {
@@ -622,9 +1407,10 @@ func (c *gRPCClient) ImportYumArtifacts(ctx context.Context, req *artifactregist
 }
 
 func (c *gRPCClient) ListRepositories(ctx context.Context, req *artifactregistrypb.ListRepositoriesRequest, opts ...gax.CallOption) *RepositoryIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListRepositories[0:len((*c.CallOptions).ListRepositories):len((*c.CallOptions).ListRepositories)], opts...)
 	it := &RepositoryIterator{}
 	req = proto.Clone(req).(*artifactregistrypb.ListRepositoriesRequest)
@@ -640,7 +1426,7 @@ func (c *gRPCClient) ListRepositories(ctx context.Context, req *artifactregistry
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListRepositories(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListRepositories, req, settings.GRPC, c.logger, "ListRepositories")
 			return err
 		}, opts...)
 		if err != nil {
@@ -667,19 +1453,15 @@ func (c *gRPCClient) ListRepositories(ctx context.Context, req *artifactregistry
 }
 
 func (c *gRPCClient) GetRepository(ctx context.Context, req *artifactregistrypb.GetRepositoryRequest, opts ...gax.CallOption) (*artifactregistrypb.Repository, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetRepository[0:len((*c.CallOptions).GetRepository):len((*c.CallOptions).GetRepository)], opts...)
 	var resp *artifactregistrypb.Repository
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetRepository(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetRepository, req, settings.GRPC, c.logger, "GetRepository")
 		return err
 	}, opts...)
 	if err != nil {
@@ -689,19 +1471,15 @@ func (c *gRPCClient) GetRepository(ctx context.Context, req *artifactregistrypb.
 }
 
 func (c *gRPCClient) CreateRepository(ctx context.Context, req *artifactregistrypb.CreateRepositoryRequest, opts ...gax.CallOption) (*CreateRepositoryOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateRepository[0:len((*c.CallOptions).CreateRepository):len((*c.CallOptions).CreateRepository)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.CreateRepository(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.CreateRepository, req, settings.GRPC, c.logger, "CreateRepository")
 		return err
 	}, opts...)
 	if err != nil {
@@ -713,19 +1491,15 @@ func (c *gRPCClient) CreateRepository(ctx context.Context, req *artifactregistry
 }
 
 func (c *gRPCClient) UpdateRepository(ctx context.Context, req *artifactregistrypb.UpdateRepositoryRequest, opts ...gax.CallOption) (*artifactregistrypb.Repository, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "repository.name", url.QueryEscape(req.GetRepository().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "repository.name", url.QueryEscape(req.GetRepository().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateRepository[0:len((*c.CallOptions).UpdateRepository):len((*c.CallOptions).UpdateRepository)], opts...)
 	var resp *artifactregistrypb.Repository
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.UpdateRepository(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.UpdateRepository, req, settings.GRPC, c.logger, "UpdateRepository")
 		return err
 	}, opts...)
 	if err != nil {
@@ -735,19 +1509,15 @@ func (c *gRPCClient) UpdateRepository(ctx context.Context, req *artifactregistry
 }
 
 func (c *gRPCClient) DeleteRepository(ctx context.Context, req *artifactregistrypb.DeleteRepositoryRequest, opts ...gax.CallOption) (*DeleteRepositoryOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteRepository[0:len((*c.CallOptions).DeleteRepository):len((*c.CallOptions).DeleteRepository)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.DeleteRepository(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.DeleteRepository, req, settings.GRPC, c.logger, "DeleteRepository")
 		return err
 	}, opts...)
 	if err != nil {
@@ -759,9 +1529,10 @@ func (c *gRPCClient) DeleteRepository(ctx context.Context, req *artifactregistry
 }
 
 func (c *gRPCClient) ListPackages(ctx context.Context, req *artifactregistrypb.ListPackagesRequest, opts ...gax.CallOption) *PackageIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListPackages[0:len((*c.CallOptions).ListPackages):len((*c.CallOptions).ListPackages)], opts...)
 	it := &PackageIterator{}
 	req = proto.Clone(req).(*artifactregistrypb.ListPackagesRequest)
@@ -777,7 +1548,7 @@ func (c *gRPCClient) ListPackages(ctx context.Context, req *artifactregistrypb.L
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListPackages(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListPackages, req, settings.GRPC, c.logger, "ListPackages")
 			return err
 		}, opts...)
 		if err != nil {
@@ -804,19 +1575,15 @@ func (c *gRPCClient) ListPackages(ctx context.Context, req *artifactregistrypb.L
 }
 
 func (c *gRPCClient) GetPackage(ctx context.Context, req *artifactregistrypb.GetPackageRequest, opts ...gax.CallOption) (*artifactregistrypb.Package, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetPackage[0:len((*c.CallOptions).GetPackage):len((*c.CallOptions).GetPackage)], opts...)
 	var resp *artifactregistrypb.Package
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetPackage(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetPackage, req, settings.GRPC, c.logger, "GetPackage")
 		return err
 	}, opts...)
 	if err != nil {
@@ -826,19 +1593,15 @@ func (c *gRPCClient) GetPackage(ctx context.Context, req *artifactregistrypb.Get
 }
 
 func (c *gRPCClient) DeletePackage(ctx context.Context, req *artifactregistrypb.DeletePackageRequest, opts ...gax.CallOption) (*DeletePackageOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeletePackage[0:len((*c.CallOptions).DeletePackage):len((*c.CallOptions).DeletePackage)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.DeletePackage(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.DeletePackage, req, settings.GRPC, c.logger, "DeletePackage")
 		return err
 	}, opts...)
 	if err != nil {
@@ -850,9 +1613,10 @@ func (c *gRPCClient) DeletePackage(ctx context.Context, req *artifactregistrypb.
 }
 
 func (c *gRPCClient) ListVersions(ctx context.Context, req *artifactregistrypb.ListVersionsRequest, opts ...gax.CallOption) *VersionIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListVersions[0:len((*c.CallOptions).ListVersions):len((*c.CallOptions).ListVersions)], opts...)
 	it := &VersionIterator{}
 	req = proto.Clone(req).(*artifactregistrypb.ListVersionsRequest)
@@ -868,7 +1632,7 @@ func (c *gRPCClient) ListVersions(ctx context.Context, req *artifactregistrypb.L
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListVersions(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListVersions, req, settings.GRPC, c.logger, "ListVersions")
 			return err
 		}, opts...)
 		if err != nil {
@@ -895,19 +1659,15 @@ func (c *gRPCClient) ListVersions(ctx context.Context, req *artifactregistrypb.L
 }
 
 func (c *gRPCClient) GetVersion(ctx context.Context, req *artifactregistrypb.GetVersionRequest, opts ...gax.CallOption) (*artifactregistrypb.Version, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetVersion[0:len((*c.CallOptions).GetVersion):len((*c.CallOptions).GetVersion)], opts...)
 	var resp *artifactregistrypb.Version
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetVersion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetVersion, req, settings.GRPC, c.logger, "GetVersion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -917,19 +1677,15 @@ func (c *gRPCClient) GetVersion(ctx context.Context, req *artifactregistrypb.Get
 }
 
 func (c *gRPCClient) DeleteVersion(ctx context.Context, req *artifactregistrypb.DeleteVersionRequest, opts ...gax.CallOption) (*DeleteVersionOperation, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteVersion[0:len((*c.CallOptions).DeleteVersion):len((*c.CallOptions).DeleteVersion)], opts...)
 	var resp *longrunningpb.Operation
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.DeleteVersion(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.DeleteVersion, req, settings.GRPC, c.logger, "DeleteVersion")
 		return err
 	}, opts...)
 	if err != nil {
@@ -940,10 +1696,49 @@ func (c *gRPCClient) DeleteVersion(ctx context.Context, req *artifactregistrypb.
 	}, nil
 }
 
-func (c *gRPCClient) ListFiles(ctx context.Context, req *artifactregistrypb.ListFilesRequest, opts ...gax.CallOption) *FileIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+func (c *gRPCClient) BatchDeleteVersions(ctx context.Context, req *artifactregistrypb.BatchDeleteVersionsRequest, opts ...gax.CallOption) (*BatchDeleteVersionsOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).BatchDeleteVersions[0:len((*c.CallOptions).BatchDeleteVersions):len((*c.CallOptions).BatchDeleteVersions)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.BatchDeleteVersions, req, settings.GRPC, c.logger, "BatchDeleteVersions")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &BatchDeleteVersionsOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *gRPCClient) UpdateVersion(ctx context.Context, req *artifactregistrypb.UpdateVersionRequest, opts ...gax.CallOption) (*artifactregistrypb.Version, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "version.name", url.QueryEscape(req.GetVersion().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateVersion[0:len((*c.CallOptions).UpdateVersion):len((*c.CallOptions).UpdateVersion)], opts...)
+	var resp *artifactregistrypb.Version
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.UpdateVersion, req, settings.GRPC, c.logger, "UpdateVersion")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) ListFiles(ctx context.Context, req *artifactregistrypb.ListFilesRequest, opts ...gax.CallOption) *FileIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListFiles[0:len((*c.CallOptions).ListFiles):len((*c.CallOptions).ListFiles)], opts...)
 	it := &FileIterator{}
 	req = proto.Clone(req).(*artifactregistrypb.ListFilesRequest)
@@ -959,7 +1754,7 @@ func (c *gRPCClient) ListFiles(ctx context.Context, req *artifactregistrypb.List
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListFiles(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListFiles, req, settings.GRPC, c.logger, "ListFiles")
 			return err
 		}, opts...)
 		if err != nil {
@@ -986,19 +1781,53 @@ func (c *gRPCClient) ListFiles(ctx context.Context, req *artifactregistrypb.List
 }
 
 func (c *gRPCClient) GetFile(ctx context.Context, req *artifactregistrypb.GetFileRequest, opts ...gax.CallOption) (*artifactregistrypb.File, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetFile[0:len((*c.CallOptions).GetFile):len((*c.CallOptions).GetFile)], opts...)
 	var resp *artifactregistrypb.File
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetFile(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetFile, req, settings.GRPC, c.logger, "GetFile")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) DeleteFile(ctx context.Context, req *artifactregistrypb.DeleteFileRequest, opts ...gax.CallOption) (*DeleteFileOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).DeleteFile[0:len((*c.CallOptions).DeleteFile):len((*c.CallOptions).DeleteFile)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.DeleteFile, req, settings.GRPC, c.logger, "DeleteFile")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &DeleteFileOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *gRPCClient) UpdateFile(ctx context.Context, req *artifactregistrypb.UpdateFileRequest, opts ...gax.CallOption) (*artifactregistrypb.File, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "file.name", url.QueryEscape(req.GetFile().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateFile[0:len((*c.CallOptions).UpdateFile):len((*c.CallOptions).UpdateFile)], opts...)
+	var resp *artifactregistrypb.File
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.UpdateFile, req, settings.GRPC, c.logger, "UpdateFile")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1008,9 +1837,10 @@ func (c *gRPCClient) GetFile(ctx context.Context, req *artifactregistrypb.GetFil
 }
 
 func (c *gRPCClient) ListTags(ctx context.Context, req *artifactregistrypb.ListTagsRequest, opts ...gax.CallOption) *TagIterator {
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).ListTags[0:len((*c.CallOptions).ListTags):len((*c.CallOptions).ListTags)], opts...)
 	it := &TagIterator{}
 	req = proto.Clone(req).(*artifactregistrypb.ListTagsRequest)
@@ -1026,7 +1856,7 @@ func (c *gRPCClient) ListTags(ctx context.Context, req *artifactregistrypb.ListT
 		}
 		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 			var err error
-			resp, err = c.client.ListTags(ctx, req, settings.GRPC...)
+			resp, err = executeRPC(ctx, c.client.ListTags, req, settings.GRPC, c.logger, "ListTags")
 			return err
 		}, opts...)
 		if err != nil {
@@ -1053,19 +1883,15 @@ func (c *gRPCClient) ListTags(ctx context.Context, req *artifactregistrypb.ListT
 }
 
 func (c *gRPCClient) GetTag(ctx context.Context, req *artifactregistrypb.GetTagRequest, opts ...gax.CallOption) (*artifactregistrypb.Tag, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetTag[0:len((*c.CallOptions).GetTag):len((*c.CallOptions).GetTag)], opts...)
 	var resp *artifactregistrypb.Tag
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetTag(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetTag, req, settings.GRPC, c.logger, "GetTag")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1075,19 +1901,15 @@ func (c *gRPCClient) GetTag(ctx context.Context, req *artifactregistrypb.GetTagR
 }
 
 func (c *gRPCClient) CreateTag(ctx context.Context, req *artifactregistrypb.CreateTagRequest, opts ...gax.CallOption) (*artifactregistrypb.Tag, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).CreateTag[0:len((*c.CallOptions).CreateTag):len((*c.CallOptions).CreateTag)], opts...)
 	var resp *artifactregistrypb.Tag
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.CreateTag(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.CreateTag, req, settings.GRPC, c.logger, "CreateTag")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1097,19 +1919,15 @@ func (c *gRPCClient) CreateTag(ctx context.Context, req *artifactregistrypb.Crea
 }
 
 func (c *gRPCClient) UpdateTag(ctx context.Context, req *artifactregistrypb.UpdateTagRequest, opts ...gax.CallOption) (*artifactregistrypb.Tag, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "tag.name", url.QueryEscape(req.GetTag().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "tag.name", url.QueryEscape(req.GetTag().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateTag[0:len((*c.CallOptions).UpdateTag):len((*c.CallOptions).UpdateTag)], opts...)
 	var resp *artifactregistrypb.Tag
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.UpdateTag(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.UpdateTag, req, settings.GRPC, c.logger, "UpdateTag")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1119,37 +1937,143 @@ func (c *gRPCClient) UpdateTag(ctx context.Context, req *artifactregistrypb.Upda
 }
 
 func (c *gRPCClient) DeleteTag(ctx context.Context, req *artifactregistrypb.DeleteTagRequest, opts ...gax.CallOption) error {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).DeleteTag[0:len((*c.CallOptions).DeleteTag):len((*c.CallOptions).DeleteTag)], opts...)
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		_, err = c.client.DeleteTag(ctx, req, settings.GRPC...)
+		_, err = executeRPC(ctx, c.client.DeleteTag, req, settings.GRPC, c.logger, "DeleteTag")
+		return err
+	}, opts...)
+	return err
+}
+
+func (c *gRPCClient) CreateRule(ctx context.Context, req *artifactregistrypb.CreateRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).CreateRule[0:len((*c.CallOptions).CreateRule):len((*c.CallOptions).CreateRule)], opts...)
+	var resp *artifactregistrypb.Rule
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.CreateRule, req, settings.GRPC, c.logger, "CreateRule")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) ListRules(ctx context.Context, req *artifactregistrypb.ListRulesRequest, opts ...gax.CallOption) *RuleIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).ListRules[0:len((*c.CallOptions).ListRules):len((*c.CallOptions).ListRules)], opts...)
+	it := &RuleIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListRulesRequest)
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.Rule, string, error) {
+		resp := &artifactregistrypb.ListRulesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			var err error
+			resp, err = executeRPC(ctx, c.client.ListRules, req, settings.GRPC, c.logger, "ListRules")
+			return err
+		}, opts...)
+		if err != nil {
+			return nil, "", err
+		}
+
+		it.Response = resp
+		return resp.GetRules(), resp.GetNextPageToken(), nil
+	}
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+func (c *gRPCClient) GetRule(ctx context.Context, req *artifactregistrypb.GetRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetRule[0:len((*c.CallOptions).GetRule):len((*c.CallOptions).GetRule)], opts...)
+	var resp *artifactregistrypb.Rule
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.GetRule, req, settings.GRPC, c.logger, "GetRule")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) UpdateRule(ctx context.Context, req *artifactregistrypb.UpdateRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "rule.name", url.QueryEscape(req.GetRule().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateRule[0:len((*c.CallOptions).UpdateRule):len((*c.CallOptions).UpdateRule)], opts...)
+	var resp *artifactregistrypb.Rule
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.UpdateRule, req, settings.GRPC, c.logger, "UpdateRule")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) DeleteRule(ctx context.Context, req *artifactregistrypb.DeleteRuleRequest, opts ...gax.CallOption) error {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).DeleteRule[0:len((*c.CallOptions).DeleteRule):len((*c.CallOptions).DeleteRule)], opts...)
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		_, err = executeRPC(ctx, c.client.DeleteRule, req, settings.GRPC, c.logger, "DeleteRule")
 		return err
 	}, opts...)
 	return err
 }
 
 func (c *gRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.SetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.SetIamPolicy, req, settings.GRPC, c.logger, "SetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1159,19 +2083,15 @@ func (c *gRPCClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRe
 }
 
 func (c *gRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
 	var resp *iampb.Policy
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetIamPolicy(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetIamPolicy, req, settings.GRPC, c.logger, "GetIamPolicy")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1181,19 +2101,15 @@ func (c *gRPCClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRe
 }
 
 func (c *gRPCClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
 	var resp *iampb.TestIamPermissionsResponse
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.TestIamPermissions(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.TestIamPermissions, req, settings.GRPC, c.logger, "TestIamPermissions")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1203,19 +2119,15 @@ func (c *gRPCClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamP
 }
 
 func (c *gRPCClient) GetProjectSettings(ctx context.Context, req *artifactregistrypb.GetProjectSettingsRequest, opts ...gax.CallOption) (*artifactregistrypb.ProjectSettings, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).GetProjectSettings[0:len((*c.CallOptions).GetProjectSettings):len((*c.CallOptions).GetProjectSettings)], opts...)
 	var resp *artifactregistrypb.ProjectSettings
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.GetProjectSettings(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.GetProjectSettings, req, settings.GRPC, c.logger, "GetProjectSettings")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1225,19 +2137,15 @@ func (c *gRPCClient) GetProjectSettings(ctx context.Context, req *artifactregist
 }
 
 func (c *gRPCClient) UpdateProjectSettings(ctx context.Context, req *artifactregistrypb.UpdateProjectSettingsRequest, opts ...gax.CallOption) (*artifactregistrypb.ProjectSettings, error) {
-	if _, ok := ctx.Deadline(); !ok && !c.disableDeadlines {
-		cctx, cancel := context.WithTimeout(ctx, 60000*time.Millisecond)
-		defer cancel()
-		ctx = cctx
-	}
-	md := metadata.Pairs("x-goog-request-params", fmt.Sprintf("%s=%v", "project_settings.name", url.QueryEscape(req.GetProjectSettings().GetName())))
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "project_settings.name", url.QueryEscape(req.GetProjectSettings().GetName()))}
 
-	ctx = insertMetadata(ctx, c.xGoogMetadata, md)
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
 	opts = append((*c.CallOptions).UpdateProjectSettings[0:len((*c.CallOptions).UpdateProjectSettings):len((*c.CallOptions).UpdateProjectSettings)], opts...)
 	var resp *artifactregistrypb.ProjectSettings
 	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
 		var err error
-		resp, err = c.client.UpdateProjectSettings(ctx, req, settings.GRPC...)
+		resp, err = executeRPC(ctx, c.client.UpdateProjectSettings, req, settings.GRPC, c.logger, "UpdateProjectSettings")
 		return err
 	}, opts...)
 	if err != nil {
@@ -1246,9 +2154,3459 @@ func (c *gRPCClient) UpdateProjectSettings(ctx context.Context, req *artifactreg
 	return resp, nil
 }
 
-// CreateRepositoryOperation manages a long-running operation from CreateRepository.
-type CreateRepositoryOperation struct {
-	lro *longrunning.Operation
+func (c *gRPCClient) GetVPCSCConfig(ctx context.Context, req *artifactregistrypb.GetVPCSCConfigRequest, opts ...gax.CallOption) (*artifactregistrypb.VPCSCConfig, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetVPCSCConfig[0:len((*c.CallOptions).GetVPCSCConfig):len((*c.CallOptions).GetVPCSCConfig)], opts...)
+	var resp *artifactregistrypb.VPCSCConfig
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.GetVPCSCConfig, req, settings.GRPC, c.logger, "GetVPCSCConfig")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) UpdateVPCSCConfig(ctx context.Context, req *artifactregistrypb.UpdateVPCSCConfigRequest, opts ...gax.CallOption) (*artifactregistrypb.VPCSCConfig, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "vpcsc_config.name", url.QueryEscape(req.GetVpcscConfig().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateVPCSCConfig[0:len((*c.CallOptions).UpdateVPCSCConfig):len((*c.CallOptions).UpdateVPCSCConfig)], opts...)
+	var resp *artifactregistrypb.VPCSCConfig
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.UpdateVPCSCConfig, req, settings.GRPC, c.logger, "UpdateVPCSCConfig")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) UpdatePackage(ctx context.Context, req *artifactregistrypb.UpdatePackageRequest, opts ...gax.CallOption) (*artifactregistrypb.Package, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "package.name", url.QueryEscape(req.GetPackage().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).UpdatePackage[0:len((*c.CallOptions).UpdatePackage):len((*c.CallOptions).UpdatePackage)], opts...)
+	var resp *artifactregistrypb.Package
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.UpdatePackage, req, settings.GRPC, c.logger, "UpdatePackage")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) ListAttachments(ctx context.Context, req *artifactregistrypb.ListAttachmentsRequest, opts ...gax.CallOption) *AttachmentIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).ListAttachments[0:len((*c.CallOptions).ListAttachments):len((*c.CallOptions).ListAttachments)], opts...)
+	it := &AttachmentIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListAttachmentsRequest)
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.Attachment, string, error) {
+		resp := &artifactregistrypb.ListAttachmentsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			var err error
+			resp, err = executeRPC(ctx, c.client.ListAttachments, req, settings.GRPC, c.logger, "ListAttachments")
+			return err
+		}, opts...)
+		if err != nil {
+			return nil, "", err
+		}
+
+		it.Response = resp
+		return resp.GetAttachments(), resp.GetNextPageToken(), nil
+	}
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+func (c *gRPCClient) GetAttachment(ctx context.Context, req *artifactregistrypb.GetAttachmentRequest, opts ...gax.CallOption) (*artifactregistrypb.Attachment, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetAttachment[0:len((*c.CallOptions).GetAttachment):len((*c.CallOptions).GetAttachment)], opts...)
+	var resp *artifactregistrypb.Attachment
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.GetAttachment, req, settings.GRPC, c.logger, "GetAttachment")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) CreateAttachment(ctx context.Context, req *artifactregistrypb.CreateAttachmentRequest, opts ...gax.CallOption) (*CreateAttachmentOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).CreateAttachment[0:len((*c.CallOptions).CreateAttachment):len((*c.CallOptions).CreateAttachment)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.CreateAttachment, req, settings.GRPC, c.logger, "CreateAttachment")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &CreateAttachmentOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *gRPCClient) DeleteAttachment(ctx context.Context, req *artifactregistrypb.DeleteAttachmentRequest, opts ...gax.CallOption) (*DeleteAttachmentOperation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).DeleteAttachment[0:len((*c.CallOptions).DeleteAttachment):len((*c.CallOptions).DeleteAttachment)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.client.DeleteAttachment, req, settings.GRPC, c.logger, "DeleteAttachment")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &DeleteAttachmentOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, resp),
+	}, nil
+}
+
+func (c *gRPCClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
+	var resp *locationpb.Location
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.locationsClient.GetLocation, req, settings.GRPC, c.logger, "GetLocation")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *gRPCClient) ListLocations(ctx context.Context, req *locationpb.ListLocationsRequest, opts ...gax.CallOption) *LocationIterator {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).ListLocations[0:len((*c.CallOptions).ListLocations):len((*c.CallOptions).ListLocations)], opts...)
+	it := &LocationIterator{}
+	req = proto.Clone(req).(*locationpb.ListLocationsRequest)
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*locationpb.Location, string, error) {
+		resp := &locationpb.ListLocationsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			var err error
+			resp, err = executeRPC(ctx, c.locationsClient.ListLocations, req, settings.GRPC, c.logger, "ListLocations")
+			return err
+		}, opts...)
+		if err != nil {
+			return nil, "", err
+		}
+
+		it.Response = resp
+		return resp.GetLocations(), resp.GetNextPageToken(), nil
+	}
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+func (c *gRPCClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	ctx = gax.InsertMetadataIntoOutgoingContext(ctx, hds...)
+	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
+	var resp *longrunningpb.Operation
+	err := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		var err error
+		resp, err = executeRPC(ctx, c.operationsClient.GetOperation, req, settings.GRPC, c.logger, "GetOperation")
+		return err
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// ListDockerImages lists docker images.
+func (c *restClient) ListDockerImages(ctx context.Context, req *artifactregistrypb.ListDockerImagesRequest, opts ...gax.CallOption) *DockerImageIterator {
+	it := &DockerImageIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListDockerImagesRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.DockerImage, string, error) {
+		resp := &artifactregistrypb.ListDockerImagesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/dockerImages", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetOrderBy() != "" {
+			params.Add("orderBy", fmt.Sprintf("%v", req.GetOrderBy()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListDockerImages")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetDockerImages(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetDockerImage gets a docker image.
+func (c *restClient) GetDockerImage(ctx context.Context, req *artifactregistrypb.GetDockerImageRequest, opts ...gax.CallOption) (*artifactregistrypb.DockerImage, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetDockerImage[0:len((*c.CallOptions).GetDockerImage):len((*c.CallOptions).GetDockerImage)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.DockerImage{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetDockerImage")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListMavenArtifacts lists maven artifacts.
+func (c *restClient) ListMavenArtifacts(ctx context.Context, req *artifactregistrypb.ListMavenArtifactsRequest, opts ...gax.CallOption) *MavenArtifactIterator {
+	it := &MavenArtifactIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListMavenArtifactsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.MavenArtifact, string, error) {
+		resp := &artifactregistrypb.ListMavenArtifactsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/mavenArtifacts", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListMavenArtifacts")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetMavenArtifacts(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetMavenArtifact gets a maven artifact.
+func (c *restClient) GetMavenArtifact(ctx context.Context, req *artifactregistrypb.GetMavenArtifactRequest, opts ...gax.CallOption) (*artifactregistrypb.MavenArtifact, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetMavenArtifact[0:len((*c.CallOptions).GetMavenArtifact):len((*c.CallOptions).GetMavenArtifact)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.MavenArtifact{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetMavenArtifact")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListNpmPackages lists npm packages.
+func (c *restClient) ListNpmPackages(ctx context.Context, req *artifactregistrypb.ListNpmPackagesRequest, opts ...gax.CallOption) *NpmPackageIterator {
+	it := &NpmPackageIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListNpmPackagesRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.NpmPackage, string, error) {
+		resp := &artifactregistrypb.ListNpmPackagesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/npmPackages", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListNpmPackages")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetNpmPackages(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetNpmPackage gets a npm package.
+func (c *restClient) GetNpmPackage(ctx context.Context, req *artifactregistrypb.GetNpmPackageRequest, opts ...gax.CallOption) (*artifactregistrypb.NpmPackage, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetNpmPackage[0:len((*c.CallOptions).GetNpmPackage):len((*c.CallOptions).GetNpmPackage)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.NpmPackage{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetNpmPackage")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListPythonPackages lists python packages.
+func (c *restClient) ListPythonPackages(ctx context.Context, req *artifactregistrypb.ListPythonPackagesRequest, opts ...gax.CallOption) *PythonPackageIterator {
+	it := &PythonPackageIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListPythonPackagesRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.PythonPackage, string, error) {
+		resp := &artifactregistrypb.ListPythonPackagesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/pythonPackages", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListPythonPackages")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetPythonPackages(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetPythonPackage gets a python package.
+func (c *restClient) GetPythonPackage(ctx context.Context, req *artifactregistrypb.GetPythonPackageRequest, opts ...gax.CallOption) (*artifactregistrypb.PythonPackage, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetPythonPackage[0:len((*c.CallOptions).GetPythonPackage):len((*c.CallOptions).GetPythonPackage)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.PythonPackage{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetPythonPackage")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ImportAptArtifacts imports Apt artifacts. The returned Operation will complete once the
+// resources are imported. Package, Version, and File resources are created
+// based on the imported artifacts. Imported artifacts that conflict with
+// existing resources are ignored.
+func (c *restClient) ImportAptArtifacts(ctx context.Context, req *artifactregistrypb.ImportAptArtifactsRequest, opts ...gax.CallOption) (*ImportAptArtifactsOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/aptArtifacts:import", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "ImportAptArtifacts")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &ImportAptArtifactsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// ImportYumArtifacts imports Yum (RPM) artifacts. The returned Operation will complete once the
+// resources are imported. Package, Version, and File resources are created
+// based on the imported artifacts. Imported artifacts that conflict with
+// existing resources are ignored.
+func (c *restClient) ImportYumArtifacts(ctx context.Context, req *artifactregistrypb.ImportYumArtifactsRequest, opts ...gax.CallOption) (*ImportYumArtifactsOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/yumArtifacts:import", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "ImportYumArtifacts")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &ImportYumArtifactsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// ListRepositories lists repositories.
+func (c *restClient) ListRepositories(ctx context.Context, req *artifactregistrypb.ListRepositoriesRequest, opts ...gax.CallOption) *RepositoryIterator {
+	it := &RepositoryIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListRepositoriesRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.Repository, string, error) {
+		resp := &artifactregistrypb.ListRepositoriesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/repositories", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetOrderBy() != "" {
+			params.Add("orderBy", fmt.Sprintf("%v", req.GetOrderBy()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListRepositories")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetRepositories(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetRepository gets a repository.
+func (c *restClient) GetRepository(ctx context.Context, req *artifactregistrypb.GetRepositoryRequest, opts ...gax.CallOption) (*artifactregistrypb.Repository, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetRepository[0:len((*c.CallOptions).GetRepository):len((*c.CallOptions).GetRepository)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Repository{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetRepository")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// CreateRepository creates a repository. The returned Operation will finish once the
+// repository has been created. Its response will be the created Repository.
+func (c *restClient) CreateRepository(ctx context.Context, req *artifactregistrypb.CreateRepositoryRequest, opts ...gax.CallOption) (*CreateRepositoryOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetRepository()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/repositories", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	params.Add("repositoryId", fmt.Sprintf("%v", req.GetRepositoryId()))
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateRepository")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &CreateRepositoryOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// UpdateRepository updates a repository.
+func (c *restClient) UpdateRepository(ctx context.Context, req *artifactregistrypb.UpdateRepositoryRequest, opts ...gax.CallOption) (*artifactregistrypb.Repository, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetRepository()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetRepository().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "repository.name", url.QueryEscape(req.GetRepository().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateRepository[0:len((*c.CallOptions).UpdateRepository):len((*c.CallOptions).UpdateRepository)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Repository{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateRepository")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// DeleteRepository deletes a repository and all of its contents. The returned Operation will
+// finish once the repository has been deleted. It will not have any Operation
+// metadata and will return a google.protobuf.Empty response.
+func (c *restClient) DeleteRepository(ctx context.Context, req *artifactregistrypb.DeleteRepositoryRequest, opts ...gax.CallOption) (*DeleteRepositoryOperation, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteRepository")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &DeleteRepositoryOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// ListPackages lists packages.
+func (c *restClient) ListPackages(ctx context.Context, req *artifactregistrypb.ListPackagesRequest, opts ...gax.CallOption) *PackageIterator {
+	it := &PackageIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListPackagesRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.Package, string, error) {
+		resp := &artifactregistrypb.ListPackagesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/packages", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetOrderBy() != "" {
+			params.Add("orderBy", fmt.Sprintf("%v", req.GetOrderBy()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListPackages")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetPackages(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetPackage gets a package.
+func (c *restClient) GetPackage(ctx context.Context, req *artifactregistrypb.GetPackageRequest, opts ...gax.CallOption) (*artifactregistrypb.Package, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetPackage[0:len((*c.CallOptions).GetPackage):len((*c.CallOptions).GetPackage)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Package{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetPackage")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// DeletePackage deletes a package and all of its versions and tags. The returned operation
+// will complete once the package has been deleted.
+func (c *restClient) DeletePackage(ctx context.Context, req *artifactregistrypb.DeletePackageRequest, opts ...gax.CallOption) (*DeletePackageOperation, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeletePackage")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &DeletePackageOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// ListVersions lists versions.
+func (c *restClient) ListVersions(ctx context.Context, req *artifactregistrypb.ListVersionsRequest, opts ...gax.CallOption) *VersionIterator {
+	it := &VersionIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListVersionsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.Version, string, error) {
+		resp := &artifactregistrypb.ListVersionsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/versions", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetOrderBy() != "" {
+			params.Add("orderBy", fmt.Sprintf("%v", req.GetOrderBy()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+		if req.GetView() != 0 {
+			params.Add("view", fmt.Sprintf("%v", req.GetView()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListVersions")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetVersions(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetVersion gets a version
+func (c *restClient) GetVersion(ctx context.Context, req *artifactregistrypb.GetVersionRequest, opts ...gax.CallOption) (*artifactregistrypb.Version, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetView() != 0 {
+		params.Add("view", fmt.Sprintf("%v", req.GetView()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetVersion[0:len((*c.CallOptions).GetVersion):len((*c.CallOptions).GetVersion)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Version{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetVersion")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// DeleteVersion deletes a version and all of its content. The returned operation will
+// complete once the version has been deleted.
+func (c *restClient) DeleteVersion(ctx context.Context, req *artifactregistrypb.DeleteVersionRequest, opts ...gax.CallOption) (*DeleteVersionOperation, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetForce() {
+		params.Add("force", fmt.Sprintf("%v", req.GetForce()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteVersion")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &DeleteVersionOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// BatchDeleteVersions deletes multiple versions across a repository. The returned operation will
+// complete once the versions have been deleted.
+func (c *restClient) BatchDeleteVersions(ctx context.Context, req *artifactregistrypb.BatchDeleteVersionsRequest, opts ...gax.CallOption) (*BatchDeleteVersionsOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/versions:batchDelete", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "BatchDeleteVersions")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &BatchDeleteVersionsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// UpdateVersion updates a version.
+func (c *restClient) UpdateVersion(ctx context.Context, req *artifactregistrypb.UpdateVersionRequest, opts ...gax.CallOption) (*artifactregistrypb.Version, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetVersion()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetVersion().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "version.name", url.QueryEscape(req.GetVersion().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateVersion[0:len((*c.CallOptions).UpdateVersion):len((*c.CallOptions).UpdateVersion)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Version{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateVersion")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListFiles lists files.
+func (c *restClient) ListFiles(ctx context.Context, req *artifactregistrypb.ListFilesRequest, opts ...gax.CallOption) *FileIterator {
+	it := &FileIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListFilesRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.File, string, error) {
+		resp := &artifactregistrypb.ListFilesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/files", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetOrderBy() != "" {
+			params.Add("orderBy", fmt.Sprintf("%v", req.GetOrderBy()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListFiles")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetFiles(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetFile gets a file.
+func (c *restClient) GetFile(ctx context.Context, req *artifactregistrypb.GetFileRequest, opts ...gax.CallOption) (*artifactregistrypb.File, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetFile[0:len((*c.CallOptions).GetFile):len((*c.CallOptions).GetFile)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.File{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetFile")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// DeleteFile deletes a file and all of its content. It is only allowed on generic
+// repositories. The returned operation will complete once the file has been
+// deleted.
+func (c *restClient) DeleteFile(ctx context.Context, req *artifactregistrypb.DeleteFileRequest, opts ...gax.CallOption) (*DeleteFileOperation, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteFile")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &DeleteFileOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// UpdateFile updates a file.
+func (c *restClient) UpdateFile(ctx context.Context, req *artifactregistrypb.UpdateFileRequest, opts ...gax.CallOption) (*artifactregistrypb.File, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetFile()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetFile().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "file.name", url.QueryEscape(req.GetFile().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateFile[0:len((*c.CallOptions).UpdateFile):len((*c.CallOptions).UpdateFile)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.File{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateFile")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListTags lists tags.
+func (c *restClient) ListTags(ctx context.Context, req *artifactregistrypb.ListTagsRequest, opts ...gax.CallOption) *TagIterator {
+	it := &TagIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListTagsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.Tag, string, error) {
+		resp := &artifactregistrypb.ListTagsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/tags", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListTags")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetTags(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetTag gets a tag.
+func (c *restClient) GetTag(ctx context.Context, req *artifactregistrypb.GetTagRequest, opts ...gax.CallOption) (*artifactregistrypb.Tag, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetTag[0:len((*c.CallOptions).GetTag):len((*c.CallOptions).GetTag)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Tag{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetTag")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// CreateTag creates a tag.
+func (c *restClient) CreateTag(ctx context.Context, req *artifactregistrypb.CreateTagRequest, opts ...gax.CallOption) (*artifactregistrypb.Tag, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetTag()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/tags", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetTagId() != "" {
+		params.Add("tagId", fmt.Sprintf("%v", req.GetTagId()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).CreateTag[0:len((*c.CallOptions).CreateTag):len((*c.CallOptions).CreateTag)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Tag{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateTag")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// UpdateTag updates a tag.
+func (c *restClient) UpdateTag(ctx context.Context, req *artifactregistrypb.UpdateTagRequest, opts ...gax.CallOption) (*artifactregistrypb.Tag, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetTag()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetTag().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "tag.name", url.QueryEscape(req.GetTag().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateTag[0:len((*c.CallOptions).UpdateTag):len((*c.CallOptions).UpdateTag)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Tag{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateTag")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// DeleteTag deletes a tag.
+func (c *restClient) DeleteTag(ctx context.Context, req *artifactregistrypb.DeleteTagRequest, opts ...gax.CallOption) error {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteTag")
+		return err
+	}, opts...)
+}
+
+// CreateRule creates a rule.
+func (c *restClient) CreateRule(ctx context.Context, req *artifactregistrypb.CreateRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetRule()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/rules", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetRuleId() != "" {
+		params.Add("ruleId", fmt.Sprintf("%v", req.GetRuleId()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).CreateRule[0:len((*c.CallOptions).CreateRule):len((*c.CallOptions).CreateRule)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Rule{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateRule")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListRules lists rules.
+func (c *restClient) ListRules(ctx context.Context, req *artifactregistrypb.ListRulesRequest, opts ...gax.CallOption) *RuleIterator {
+	it := &RuleIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListRulesRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.Rule, string, error) {
+		resp := &artifactregistrypb.ListRulesResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/rules", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListRules")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetRules(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetRule gets a rule.
+func (c *restClient) GetRule(ctx context.Context, req *artifactregistrypb.GetRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetRule[0:len((*c.CallOptions).GetRule):len((*c.CallOptions).GetRule)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Rule{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetRule")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// UpdateRule updates a rule.
+func (c *restClient) UpdateRule(ctx context.Context, req *artifactregistrypb.UpdateRuleRequest, opts ...gax.CallOption) (*artifactregistrypb.Rule, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetRule()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetRule().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "rule.name", url.QueryEscape(req.GetRule().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateRule[0:len((*c.CallOptions).UpdateRule):len((*c.CallOptions).UpdateRule)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Rule{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateRule")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// DeleteRule deletes a rule.
+func (c *restClient) DeleteRule(ctx context.Context, req *artifactregistrypb.DeleteRuleRequest, opts ...gax.CallOption) error {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	return gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		_, err = executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteRule")
+		return err
+	}, opts...)
+}
+
+// SetIamPolicy updates the IAM policy for a given resource.
+func (c *restClient) SetIamPolicy(ctx context.Context, req *iampb.SetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v:setIamPolicy", req.GetResource())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).SetIamPolicy[0:len((*c.CallOptions).SetIamPolicy):len((*c.CallOptions).SetIamPolicy)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &iampb.Policy{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "SetIamPolicy")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// GetIamPolicy gets the IAM policy for a given resource.
+func (c *restClient) GetIamPolicy(ctx context.Context, req *iampb.GetIamPolicyRequest, opts ...gax.CallOption) (*iampb.Policy, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v:getIamPolicy", req.GetResource())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetOptions().GetRequestedPolicyVersion() != 0 {
+		params.Add("options.requestedPolicyVersion", fmt.Sprintf("%v", req.GetOptions().GetRequestedPolicyVersion()))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetIamPolicy[0:len((*c.CallOptions).GetIamPolicy):len((*c.CallOptions).GetIamPolicy)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &iampb.Policy{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetIamPolicy")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// TestIamPermissions tests if the caller has a list of permissions on a resource.
+func (c *restClient) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest, opts ...gax.CallOption) (*iampb.TestIamPermissionsResponse, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	jsonReq, err := m.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v:testIamPermissions", req.GetResource())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "resource", url.QueryEscape(req.GetResource()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).TestIamPermissions[0:len((*c.CallOptions).TestIamPermissions):len((*c.CallOptions).TestIamPermissions)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &iampb.TestIamPermissionsResponse{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "TestIamPermissions")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// GetProjectSettings retrieves the Settings for the Project.
+func (c *restClient) GetProjectSettings(ctx context.Context, req *artifactregistrypb.GetProjectSettingsRequest, opts ...gax.CallOption) (*artifactregistrypb.ProjectSettings, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetProjectSettings[0:len((*c.CallOptions).GetProjectSettings):len((*c.CallOptions).GetProjectSettings)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.ProjectSettings{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetProjectSettings")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// UpdateProjectSettings updates the Settings for the Project.
+func (c *restClient) UpdateProjectSettings(ctx context.Context, req *artifactregistrypb.UpdateProjectSettingsRequest, opts ...gax.CallOption) (*artifactregistrypb.ProjectSettings, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetProjectSettings()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetProjectSettings().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "project_settings.name", url.QueryEscape(req.GetProjectSettings().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateProjectSettings[0:len((*c.CallOptions).UpdateProjectSettings):len((*c.CallOptions).UpdateProjectSettings)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.ProjectSettings{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateProjectSettings")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// GetVPCSCConfig retrieves the VPCSC Config for the Project.
+func (c *restClient) GetVPCSCConfig(ctx context.Context, req *artifactregistrypb.GetVPCSCConfigRequest, opts ...gax.CallOption) (*artifactregistrypb.VPCSCConfig, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetVPCSCConfig[0:len((*c.CallOptions).GetVPCSCConfig):len((*c.CallOptions).GetVPCSCConfig)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.VPCSCConfig{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetVPCSCConfig")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// UpdateVPCSCConfig updates the VPCSC Config for the Project.
+func (c *restClient) UpdateVPCSCConfig(ctx context.Context, req *artifactregistrypb.UpdateVPCSCConfigRequest, opts ...gax.CallOption) (*artifactregistrypb.VPCSCConfig, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetVpcscConfig()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetVpcscConfig().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "vpcsc_config.name", url.QueryEscape(req.GetVpcscConfig().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdateVPCSCConfig[0:len((*c.CallOptions).UpdateVPCSCConfig):len((*c.CallOptions).UpdateVPCSCConfig)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.VPCSCConfig{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdateVPCSCConfig")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// UpdatePackage updates a package.
+func (c *restClient) UpdatePackage(ctx context.Context, req *artifactregistrypb.UpdatePackageRequest, opts ...gax.CallOption) (*artifactregistrypb.Package, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetPackage()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetPackage().GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	if req.GetUpdateMask() != nil {
+		field, err := protojson.Marshal(req.GetUpdateMask())
+		if err != nil {
+			return nil, err
+		}
+		params.Add("updateMask", string(field[1:len(field)-1]))
+	}
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "package.name", url.QueryEscape(req.GetPackage().GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).UpdatePackage[0:len((*c.CallOptions).UpdatePackage):len((*c.CallOptions).UpdatePackage)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Package{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("PATCH", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "UpdatePackage")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListAttachments lists attachments.
+func (c *restClient) ListAttachments(ctx context.Context, req *artifactregistrypb.ListAttachmentsRequest, opts ...gax.CallOption) *AttachmentIterator {
+	it := &AttachmentIterator{}
+	req = proto.Clone(req).(*artifactregistrypb.ListAttachmentsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*artifactregistrypb.Attachment, string, error) {
+		resp := &artifactregistrypb.ListAttachmentsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/attachments", req.GetParent())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListAttachments")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetAttachments(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetAttachment gets an attachment.
+func (c *restClient) GetAttachment(ctx context.Context, req *artifactregistrypb.GetAttachmentRequest, opts ...gax.CallOption) (*artifactregistrypb.Attachment, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetAttachment[0:len((*c.CallOptions).GetAttachment):len((*c.CallOptions).GetAttachment)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &artifactregistrypb.Attachment{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetAttachment")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// CreateAttachment creates an attachment. The returned Operation will finish once the
+// attachment has been created. Its response will be the created attachment.
+func (c *restClient) CreateAttachment(ctx context.Context, req *artifactregistrypb.CreateAttachmentRequest, opts ...gax.CallOption) (*CreateAttachmentOperation, error) {
+	m := protojson.MarshalOptions{AllowPartial: true, UseEnumNumbers: true}
+	body := req.GetAttachment()
+	jsonReq, err := m.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v/attachments", req.GetParent())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+	params.Add("attachmentId", fmt.Sprintf("%v", req.GetAttachmentId()))
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "parent", url.QueryEscape(req.GetParent()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("POST", baseUrl.String(), bytes.NewReader(jsonReq))
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, jsonReq, "CreateAttachment")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &CreateAttachmentOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// DeleteAttachment deletes an attachment. The returned Operation will
+// finish once the attachments has been deleted. It will not have any
+// Operation metadata and will return a google.protobuf.Empty response.
+func (c *restClient) DeleteAttachment(ctx context.Context, req *artifactregistrypb.DeleteAttachmentRequest, opts ...gax.CallOption) (*DeleteAttachmentOperation, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("DELETE", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "DeleteAttachment")
+		if err != nil {
+			return err
+		}
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+
+	override := fmt.Sprintf("/v1/%s", resp.GetName())
+	return &DeleteAttachmentOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, resp),
+		pollPath: override,
+	}, nil
+}
+
+// GetLocation gets information about a location.
+func (c *restClient) GetLocation(ctx context.Context, req *locationpb.GetLocationRequest, opts ...gax.CallOption) (*locationpb.Location, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetLocation[0:len((*c.CallOptions).GetLocation):len((*c.CallOptions).GetLocation)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &locationpb.Location{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetLocation")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// ListLocations lists information about the supported locations for this service.
+func (c *restClient) ListLocations(ctx context.Context, req *locationpb.ListLocationsRequest, opts ...gax.CallOption) *LocationIterator {
+	it := &LocationIterator{}
+	req = proto.Clone(req).(*locationpb.ListLocationsRequest)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	it.InternalFetch = func(pageSize int, pageToken string) ([]*locationpb.Location, string, error) {
+		resp := &locationpb.ListLocationsResponse{}
+		if pageToken != "" {
+			req.PageToken = pageToken
+		}
+		if pageSize > math.MaxInt32 {
+			req.PageSize = math.MaxInt32
+		} else if pageSize != 0 {
+			req.PageSize = int32(pageSize)
+		}
+		baseUrl, err := url.Parse(c.endpoint)
+		if err != nil {
+			return nil, "", err
+		}
+		baseUrl.Path += fmt.Sprintf("/v1/%v/locations", req.GetName())
+
+		params := url.Values{}
+		params.Add("$alt", "json;enum-encoding=int")
+		if req.GetFilter() != "" {
+			params.Add("filter", fmt.Sprintf("%v", req.GetFilter()))
+		}
+		if req.GetPageSize() != 0 {
+			params.Add("pageSize", fmt.Sprintf("%v", req.GetPageSize()))
+		}
+		if req.GetPageToken() != "" {
+			params.Add("pageToken", fmt.Sprintf("%v", req.GetPageToken()))
+		}
+
+		baseUrl.RawQuery = params.Encode()
+
+		// Build HTTP headers from client and context metadata.
+		hds := append(c.xGoogHeaders, "Content-Type", "application/json")
+		headers := gax.BuildHeaders(ctx, hds...)
+		e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+			if settings.Path != "" {
+				baseUrl.Path = settings.Path
+			}
+			httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+			if err != nil {
+				return err
+			}
+			httpReq.Header = headers
+
+			buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "ListLocations")
+			if err != nil {
+				return err
+			}
+			if err := unm.Unmarshal(buf, resp); err != nil {
+				return err
+			}
+
+			return nil
+		}, opts...)
+		if e != nil {
+			return nil, "", e
+		}
+		it.Response = resp
+		return resp.GetLocations(), resp.GetNextPageToken(), nil
+	}
+
+	fetch := func(pageSize int, pageToken string) (string, error) {
+		items, nextPageToken, err := it.InternalFetch(pageSize, pageToken)
+		if err != nil {
+			return "", err
+		}
+		it.items = append(it.items, items...)
+		return nextPageToken, nil
+	}
+
+	it.pageInfo, it.nextFunc = iterator.NewPageInfo(fetch, it.bufLen, it.takeBuf)
+	it.pageInfo.MaxSize = int(req.GetPageSize())
+	it.pageInfo.Token = req.GetPageToken()
+
+	return it
+}
+
+// GetOperation is a utility method from google.longrunning.Operations.
+func (c *restClient) GetOperation(ctx context.Context, req *longrunningpb.GetOperationRequest, opts ...gax.CallOption) (*longrunningpb.Operation, error) {
+	baseUrl, err := url.Parse(c.endpoint)
+	if err != nil {
+		return nil, err
+	}
+	baseUrl.Path += fmt.Sprintf("/v1/%v", req.GetName())
+
+	params := url.Values{}
+	params.Add("$alt", "json;enum-encoding=int")
+
+	baseUrl.RawQuery = params.Encode()
+
+	// Build HTTP headers from client and context metadata.
+	hds := []string{"x-goog-request-params", fmt.Sprintf("%s=%v", "name", url.QueryEscape(req.GetName()))}
+
+	hds = append(c.xGoogHeaders, hds...)
+	hds = append(hds, "Content-Type", "application/json")
+	headers := gax.BuildHeaders(ctx, hds...)
+	opts = append((*c.CallOptions).GetOperation[0:len((*c.CallOptions).GetOperation):len((*c.CallOptions).GetOperation)], opts...)
+	unm := protojson.UnmarshalOptions{AllowPartial: true, DiscardUnknown: true}
+	resp := &longrunningpb.Operation{}
+	e := gax.Invoke(ctx, func(ctx context.Context, settings gax.CallSettings) error {
+		if settings.Path != "" {
+			baseUrl.Path = settings.Path
+		}
+		httpReq, err := http.NewRequest("GET", baseUrl.String(), nil)
+		if err != nil {
+			return err
+		}
+		httpReq = httpReq.WithContext(ctx)
+		httpReq.Header = headers
+
+		buf, err := executeHTTPRequest(ctx, c.httpClient, httpReq, c.logger, nil, "GetOperation")
+		if err != nil {
+			return err
+		}
+
+		if err := unm.Unmarshal(buf, resp); err != nil {
+			return err
+		}
+
+		return nil
+	}, opts...)
+	if e != nil {
+		return nil, e
+	}
+	return resp, nil
+}
+
+// BatchDeleteVersionsOperation returns a new BatchDeleteVersionsOperation from a given name.
+// The name must be that of a previously created BatchDeleteVersionsOperation, possibly from a different process.
+func (c *gRPCClient) BatchDeleteVersionsOperation(name string) *BatchDeleteVersionsOperation {
+	return &BatchDeleteVersionsOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+	}
+}
+
+// BatchDeleteVersionsOperation returns a new BatchDeleteVersionsOperation from a given name.
+// The name must be that of a previously created BatchDeleteVersionsOperation, possibly from a different process.
+func (c *restClient) BatchDeleteVersionsOperation(name string) *BatchDeleteVersionsOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &BatchDeleteVersionsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
+	}
+}
+
+// CreateAttachmentOperation returns a new CreateAttachmentOperation from a given name.
+// The name must be that of a previously created CreateAttachmentOperation, possibly from a different process.
+func (c *gRPCClient) CreateAttachmentOperation(name string) *CreateAttachmentOperation {
+	return &CreateAttachmentOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+	}
+}
+
+// CreateAttachmentOperation returns a new CreateAttachmentOperation from a given name.
+// The name must be that of a previously created CreateAttachmentOperation, possibly from a different process.
+func (c *restClient) CreateAttachmentOperation(name string) *CreateAttachmentOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &CreateAttachmentOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
+	}
 }
 
 // CreateRepositoryOperation returns a new CreateRepositoryOperation from a given name.
@@ -1259,65 +5617,50 @@ func (c *gRPCClient) CreateRepositoryOperation(name string) *CreateRepositoryOpe
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *CreateRepositoryOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*artifactregistrypb.Repository, error) {
-	var resp artifactregistrypb.Repository
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
+// CreateRepositoryOperation returns a new CreateRepositoryOperation from a given name.
+// The name must be that of a previously created CreateRepositoryOperation, possibly from a different process.
+func (c *restClient) CreateRepositoryOperation(name string) *CreateRepositoryOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &CreateRepositoryOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	return &resp, nil
 }
 
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *CreateRepositoryOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*artifactregistrypb.Repository, error) {
-	var resp artifactregistrypb.Repository
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
+// DeleteAttachmentOperation returns a new DeleteAttachmentOperation from a given name.
+// The name must be that of a previously created DeleteAttachmentOperation, possibly from a different process.
+func (c *gRPCClient) DeleteAttachmentOperation(name string) *DeleteAttachmentOperation {
+	return &DeleteAttachmentOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 	}
-	if !op.Done() {
-		return nil, nil
+}
+
+// DeleteAttachmentOperation returns a new DeleteAttachmentOperation from a given name.
+// The name must be that of a previously created DeleteAttachmentOperation, possibly from a different process.
+func (c *restClient) DeleteAttachmentOperation(name string) *DeleteAttachmentOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &DeleteAttachmentOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	return &resp, nil
 }
 
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *CreateRepositoryOperation) Metadata() (*artifactregistrypb.OperationMetadata, error) {
-	var meta artifactregistrypb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
+// DeleteFileOperation returns a new DeleteFileOperation from a given name.
+// The name must be that of a previously created DeleteFileOperation, possibly from a different process.
+func (c *gRPCClient) DeleteFileOperation(name string) *DeleteFileOperation {
+	return &DeleteFileOperation{
+		lro: longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
 	}
-	return &meta, nil
 }
 
-// Done reports whether the long-running operation has completed.
-func (op *CreateRepositoryOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *CreateRepositoryOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeletePackageOperation manages a long-running operation from DeletePackage.
-type DeletePackageOperation struct {
-	lro *longrunning.Operation
+// DeleteFileOperation returns a new DeleteFileOperation from a given name.
+// The name must be that of a previously created DeleteFileOperation, possibly from a different process.
+func (c *restClient) DeleteFileOperation(name string) *DeleteFileOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &DeleteFileOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
+	}
 }
 
 // DeletePackageOperation returns a new DeletePackageOperation from a given name.
@@ -1328,54 +5671,14 @@ func (c *gRPCClient) DeletePackageOperation(name string) *DeletePackageOperation
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeletePackageOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeletePackageOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeletePackageOperation) Metadata() (*artifactregistrypb.OperationMetadata, error) {
-	var meta artifactregistrypb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
+// DeletePackageOperation returns a new DeletePackageOperation from a given name.
+// The name must be that of a previously created DeletePackageOperation, possibly from a different process.
+func (c *restClient) DeletePackageOperation(name string) *DeletePackageOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &DeletePackageOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeletePackageOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeletePackageOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteRepositoryOperation manages a long-running operation from DeleteRepository.
-type DeleteRepositoryOperation struct {
-	lro *longrunning.Operation
 }
 
 // DeleteRepositoryOperation returns a new DeleteRepositoryOperation from a given name.
@@ -1386,54 +5689,14 @@ func (c *gRPCClient) DeleteRepositoryOperation(name string) *DeleteRepositoryOpe
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteRepositoryOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteRepositoryOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteRepositoryOperation) Metadata() (*artifactregistrypb.OperationMetadata, error) {
-	var meta artifactregistrypb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
+// DeleteRepositoryOperation returns a new DeleteRepositoryOperation from a given name.
+// The name must be that of a previously created DeleteRepositoryOperation, possibly from a different process.
+func (c *restClient) DeleteRepositoryOperation(name string) *DeleteRepositoryOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &DeleteRepositoryOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteRepositoryOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteRepositoryOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DeleteVersionOperation manages a long-running operation from DeleteVersion.
-type DeleteVersionOperation struct {
-	lro *longrunning.Operation
 }
 
 // DeleteVersionOperation returns a new DeleteVersionOperation from a given name.
@@ -1444,54 +5707,14 @@ func (c *gRPCClient) DeleteVersionOperation(name string) *DeleteVersionOperation
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *DeleteVersionOperation) Wait(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.WaitWithInterval(ctx, nil, time.Minute, opts...)
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *DeleteVersionOperation) Poll(ctx context.Context, opts ...gax.CallOption) error {
-	return op.lro.Poll(ctx, nil, opts...)
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *DeleteVersionOperation) Metadata() (*artifactregistrypb.OperationMetadata, error) {
-	var meta artifactregistrypb.OperationMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
+// DeleteVersionOperation returns a new DeleteVersionOperation from a given name.
+// The name must be that of a previously created DeleteVersionOperation, possibly from a different process.
+func (c *restClient) DeleteVersionOperation(name string) *DeleteVersionOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &DeleteVersionOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *DeleteVersionOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *DeleteVersionOperation) Name() string {
-	return op.lro.Name()
-}
-
-// ImportAptArtifactsOperation manages a long-running operation from ImportAptArtifacts.
-type ImportAptArtifactsOperation struct {
-	lro *longrunning.Operation
 }
 
 // ImportAptArtifactsOperation returns a new ImportAptArtifactsOperation from a given name.
@@ -1502,65 +5725,14 @@ func (c *gRPCClient) ImportAptArtifactsOperation(name string) *ImportAptArtifact
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *ImportAptArtifactsOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*artifactregistrypb.ImportAptArtifactsResponse, error) {
-	var resp artifactregistrypb.ImportAptArtifactsResponse
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
+// ImportAptArtifactsOperation returns a new ImportAptArtifactsOperation from a given name.
+// The name must be that of a previously created ImportAptArtifactsOperation, possibly from a different process.
+func (c *restClient) ImportAptArtifactsOperation(name string) *ImportAptArtifactsOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &ImportAptArtifactsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *ImportAptArtifactsOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*artifactregistrypb.ImportAptArtifactsResponse, error) {
-	var resp artifactregistrypb.ImportAptArtifactsResponse
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *ImportAptArtifactsOperation) Metadata() (*artifactregistrypb.ImportAptArtifactsMetadata, error) {
-	var meta artifactregistrypb.ImportAptArtifactsMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *ImportAptArtifactsOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *ImportAptArtifactsOperation) Name() string {
-	return op.lro.Name()
-}
-
-// ImportYumArtifactsOperation manages a long-running operation from ImportYumArtifacts.
-type ImportYumArtifactsOperation struct {
-	lro *longrunning.Operation
 }
 
 // ImportYumArtifactsOperation returns a new ImportYumArtifactsOperation from a given name.
@@ -1571,340 +5743,12 @@ func (c *gRPCClient) ImportYumArtifactsOperation(name string) *ImportYumArtifact
 	}
 }
 
-// Wait blocks until the long-running operation is completed, returning the response and any errors encountered.
-//
-// See documentation of Poll for error-handling information.
-func (op *ImportYumArtifactsOperation) Wait(ctx context.Context, opts ...gax.CallOption) (*artifactregistrypb.ImportYumArtifactsResponse, error) {
-	var resp artifactregistrypb.ImportYumArtifactsResponse
-	if err := op.lro.WaitWithInterval(ctx, &resp, time.Minute, opts...); err != nil {
-		return nil, err
+// ImportYumArtifactsOperation returns a new ImportYumArtifactsOperation from a given name.
+// The name must be that of a previously created ImportYumArtifactsOperation, possibly from a different process.
+func (c *restClient) ImportYumArtifactsOperation(name string) *ImportYumArtifactsOperation {
+	override := fmt.Sprintf("/v1/%s", name)
+	return &ImportYumArtifactsOperation{
+		lro:      longrunning.InternalNewOperation(*c.LROClient, &longrunningpb.Operation{Name: name}),
+		pollPath: override,
 	}
-	return &resp, nil
-}
-
-// Poll fetches the latest state of the long-running operation.
-//
-// Poll also fetches the latest metadata, which can be retrieved by Metadata.
-//
-// If Poll fails, the error is returned and op is unmodified. If Poll succeeds and
-// the operation has completed with failure, the error is returned and op.Done will return true.
-// If Poll succeeds and the operation has completed successfully,
-// op.Done will return true, and the response of the operation is returned.
-// If Poll succeeds and the operation has not completed, the returned response and error are both nil.
-func (op *ImportYumArtifactsOperation) Poll(ctx context.Context, opts ...gax.CallOption) (*artifactregistrypb.ImportYumArtifactsResponse, error) {
-	var resp artifactregistrypb.ImportYumArtifactsResponse
-	if err := op.lro.Poll(ctx, &resp, opts...); err != nil {
-		return nil, err
-	}
-	if !op.Done() {
-		return nil, nil
-	}
-	return &resp, nil
-}
-
-// Metadata returns metadata associated with the long-running operation.
-// Metadata itself does not contact the server, but Poll does.
-// To get the latest metadata, call this method after a successful call to Poll.
-// If the metadata is not available, the returned metadata and error are both nil.
-func (op *ImportYumArtifactsOperation) Metadata() (*artifactregistrypb.ImportYumArtifactsMetadata, error) {
-	var meta artifactregistrypb.ImportYumArtifactsMetadata
-	if err := op.lro.Metadata(&meta); err == longrunning.ErrNoMetadata {
-		return nil, nil
-	} else if err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-// Done reports whether the long-running operation has completed.
-func (op *ImportYumArtifactsOperation) Done() bool {
-	return op.lro.Done()
-}
-
-// Name returns the name of the long-running operation.
-// The name is assigned by the server and is unique within the service from which the operation is created.
-func (op *ImportYumArtifactsOperation) Name() string {
-	return op.lro.Name()
-}
-
-// DockerImageIterator manages a stream of *artifactregistrypb.DockerImage.
-type DockerImageIterator struct {
-	items    []*artifactregistrypb.DockerImage
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*artifactregistrypb.DockerImage, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *DockerImageIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *DockerImageIterator) Next() (*artifactregistrypb.DockerImage, error) {
-	var item *artifactregistrypb.DockerImage
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *DockerImageIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *DockerImageIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// FileIterator manages a stream of *artifactregistrypb.File.
-type FileIterator struct {
-	items    []*artifactregistrypb.File
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*artifactregistrypb.File, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *FileIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *FileIterator) Next() (*artifactregistrypb.File, error) {
-	var item *artifactregistrypb.File
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *FileIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *FileIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// PackageIterator manages a stream of *artifactregistrypb.Package.
-type PackageIterator struct {
-	items    []*artifactregistrypb.Package
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*artifactregistrypb.Package, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *PackageIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *PackageIterator) Next() (*artifactregistrypb.Package, error) {
-	var item *artifactregistrypb.Package
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *PackageIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *PackageIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// RepositoryIterator manages a stream of *artifactregistrypb.Repository.
-type RepositoryIterator struct {
-	items    []*artifactregistrypb.Repository
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*artifactregistrypb.Repository, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *RepositoryIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *RepositoryIterator) Next() (*artifactregistrypb.Repository, error) {
-	var item *artifactregistrypb.Repository
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *RepositoryIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *RepositoryIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// TagIterator manages a stream of *artifactregistrypb.Tag.
-type TagIterator struct {
-	items    []*artifactregistrypb.Tag
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*artifactregistrypb.Tag, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *TagIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *TagIterator) Next() (*artifactregistrypb.Tag, error) {
-	var item *artifactregistrypb.Tag
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *TagIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *TagIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
-}
-
-// VersionIterator manages a stream of *artifactregistrypb.Version.
-type VersionIterator struct {
-	items    []*artifactregistrypb.Version
-	pageInfo *iterator.PageInfo
-	nextFunc func() error
-
-	// Response is the raw response for the current page.
-	// It must be cast to the RPC response type.
-	// Calling Next() or InternalFetch() updates this value.
-	Response interface{}
-
-	// InternalFetch is for use by the Google Cloud Libraries only.
-	// It is not part of the stable interface of this package.
-	//
-	// InternalFetch returns results from a single call to the underlying RPC.
-	// The number of results is no greater than pageSize.
-	// If there are no more results, nextPageToken is empty and err is nil.
-	InternalFetch func(pageSize int, pageToken string) (results []*artifactregistrypb.Version, nextPageToken string, err error)
-}
-
-// PageInfo supports pagination. See the google.golang.org/api/iterator package for details.
-func (it *VersionIterator) PageInfo() *iterator.PageInfo {
-	return it.pageInfo
-}
-
-// Next returns the next result. Its second return value is iterator.Done if there are no more
-// results. Once Next returns Done, all subsequent calls will return Done.
-func (it *VersionIterator) Next() (*artifactregistrypb.Version, error) {
-	var item *artifactregistrypb.Version
-	if err := it.nextFunc(); err != nil {
-		return item, err
-	}
-	item = it.items[0]
-	it.items = it.items[1:]
-	return item, nil
-}
-
-func (it *VersionIterator) bufLen() int {
-	return len(it.items)
-}
-
-func (it *VersionIterator) takeBuf() interface{} {
-	b := it.items
-	it.items = nil
-	return b
 }

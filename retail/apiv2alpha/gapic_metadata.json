@@ -5,6 +5,104 @@
   "protoPackage": "google.cloud.retail.v2alpha",
   "libraryPackage": "cloud.google.com/go/retail/apiv2alpha",
   "services": {
+    "AnalyticsService": {
+      "clients": {
+        "grpc": {
+          "libraryClient": "AnalyticsClient",
+          "rpcs": {
+            "ExportAnalyticsMetrics": {
+              "methods": [
+                "ExportAnalyticsMetrics"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            }
+          }
+        },
+        "rest": {
+          "libraryClient": "AnalyticsClient",
+          "rpcs": {
+            "ExportAnalyticsMetrics": {
+              "methods": [
+                "ExportAnalyticsMetrics"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "BranchService": {
+      "clients": {
+        "grpc": {
+          "libraryClient": "BranchClient",
+          "rpcs": {
+            "GetBranch": {
+              "methods": [
+                "GetBranch"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "ListBranches": {
+              "methods": [
+                "ListBranches"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            }
+          }
+        },
+        "rest": {
+          "libraryClient": "BranchClient",
+          "rpcs": {
+            "GetBranch": {
+              "methods": [
+                "GetBranch"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "ListBranches": {
+              "methods": [
+                "ListBranches"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            }
+          }
+        }
+      }
+    },
     "CatalogService": {
       "clients": {
         "grpc": {
@@ -13,6 +111,11 @@
             "AddCatalogAttribute": {
               "methods": [
                 "AddCatalogAttribute"
+              ]
+            },
+            "BatchRemoveCatalogAttributes": {
+              "methods": [
+                "BatchRemoveCatalogAttributes"
               ]
             },
             "GetAttributesConfig": {
@@ -83,6 +186,11 @@
             "AddCatalogAttribute": {
               "methods": [
                 "AddCatalogAttribute"
+              ]
+            },
+            "BatchRemoveCatalogAttributes": {
+              "methods": [
+                "BatchRemoveCatalogAttributes"
               ]
             },
             "GetAttributesConfig": {
@@ -287,6 +395,154 @@
         }
       }
     },
+    "GenerativeQuestionService": {
+      "clients": {
+        "grpc": {
+          "libraryClient": "GenerativeQuestionClient",
+          "rpcs": {
+            "BatchUpdateGenerativeQuestionConfigs": {
+              "methods": [
+                "BatchUpdateGenerativeQuestionConfigs"
+              ]
+            },
+            "GetGenerativeQuestionsFeatureConfig": {
+              "methods": [
+                "GetGenerativeQuestionsFeatureConfig"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "ListGenerativeQuestionConfigs": {
+              "methods": [
+                "ListGenerativeQuestionConfigs"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            },
+            "UpdateGenerativeQuestionConfig": {
+              "methods": [
+                "UpdateGenerativeQuestionConfig"
+              ]
+            },
+            "UpdateGenerativeQuestionsFeatureConfig": {
+              "methods": [
+                "UpdateGenerativeQuestionsFeatureConfig"
+              ]
+            }
+          }
+        },
+        "rest": {
+          "libraryClient": "GenerativeQuestionClient",
+          "rpcs": {
+            "BatchUpdateGenerativeQuestionConfigs": {
+              "methods": [
+                "BatchUpdateGenerativeQuestionConfigs"
+              ]
+            },
+            "GetGenerativeQuestionsFeatureConfig": {
+              "methods": [
+                "GetGenerativeQuestionsFeatureConfig"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "ListGenerativeQuestionConfigs": {
+              "methods": [
+                "ListGenerativeQuestionConfigs"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            },
+            "UpdateGenerativeQuestionConfig": {
+              "methods": [
+                "UpdateGenerativeQuestionConfig"
+              ]
+            },
+            "UpdateGenerativeQuestionsFeatureConfig": {
+              "methods": [
+                "UpdateGenerativeQuestionsFeatureConfig"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "MerchantCenterAccountLinkService": {
+      "clients": {
+        "grpc": {
+          "libraryClient": "MerchantCenterAccountLinkClient",
+          "rpcs": {
+            "CreateMerchantCenterAccountLink": {
+              "methods": [
+                "CreateMerchantCenterAccountLink"
+              ]
+            },
+            "DeleteMerchantCenterAccountLink": {
+              "methods": [
+                "DeleteMerchantCenterAccountLink"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "ListMerchantCenterAccountLinks": {
+              "methods": [
+                "ListMerchantCenterAccountLinks"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            }
+          }
+        },
+        "rest": {
+          "libraryClient": "MerchantCenterAccountLinkClient",
+          "rpcs": {
+            "CreateMerchantCenterAccountLink": {
+              "methods": [
+                "CreateMerchantCenterAccountLink"
+              ]
+            },
+            "DeleteMerchantCenterAccountLink": {
+              "methods": [
+                "DeleteMerchantCenterAccountLink"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "ListMerchantCenterAccountLinks": {
+              "methods": [
+                "ListMerchantCenterAccountLinks"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            }
+          }
+        }
+      }
+    },
     "ModelService": {
       "clients": {
         "grpc": {
@@ -300,6 +556,11 @@
             "DeleteModel": {
               "methods": [
                 "DeleteModel"
+              ]
+            },
+            "GetModel": {
+              "methods": [
+                "GetModel"
               ]
             },
             "GetOperation": {
@@ -350,6 +611,11 @@
             "DeleteModel": {
               "methods": [
                 "DeleteModel"
+              ]
+            },
+            "GetModel": {
+              "methods": [
+                "GetModel"
               ]
             },
             "GetOperation": {
@@ -460,6 +726,11 @@
                 "DeleteProduct"
               ]
             },
+            "ExportProducts": {
+              "methods": [
+                "ExportProducts"
+              ]
+            },
             "GetOperation": {
               "methods": [
                 "GetOperation"
@@ -535,6 +806,11 @@
                 "DeleteProduct"
               ]
             },
+            "ExportProducts": {
+              "methods": [
+                "ExportProducts"
+              ]
+            },
             "GetOperation": {
               "methods": [
                 "GetOperation"
@@ -583,6 +859,120 @@
             "UpdateProduct": {
               "methods": [
                 "UpdateProduct"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "ProjectService": {
+      "clients": {
+        "grpc": {
+          "libraryClient": "ProjectClient",
+          "rpcs": {
+            "AcceptTerms": {
+              "methods": [
+                "AcceptTerms"
+              ]
+            },
+            "EnrollSolution": {
+              "methods": [
+                "EnrollSolution"
+              ]
+            },
+            "GetAlertConfig": {
+              "methods": [
+                "GetAlertConfig"
+              ]
+            },
+            "GetLoggingConfig": {
+              "methods": [
+                "GetLoggingConfig"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "GetProject": {
+              "methods": [
+                "GetProject"
+              ]
+            },
+            "ListEnrolledSolutions": {
+              "methods": [
+                "ListEnrolledSolutions"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            },
+            "UpdateAlertConfig": {
+              "methods": [
+                "UpdateAlertConfig"
+              ]
+            },
+            "UpdateLoggingConfig": {
+              "methods": [
+                "UpdateLoggingConfig"
+              ]
+            }
+          }
+        },
+        "rest": {
+          "libraryClient": "ProjectClient",
+          "rpcs": {
+            "AcceptTerms": {
+              "methods": [
+                "AcceptTerms"
+              ]
+            },
+            "EnrollSolution": {
+              "methods": [
+                "EnrollSolution"
+              ]
+            },
+            "GetAlertConfig": {
+              "methods": [
+                "GetAlertConfig"
+              ]
+            },
+            "GetLoggingConfig": {
+              "methods": [
+                "GetLoggingConfig"
+              ]
+            },
+            "GetOperation": {
+              "methods": [
+                "GetOperation"
+              ]
+            },
+            "GetProject": {
+              "methods": [
+                "GetProject"
+              ]
+            },
+            "ListEnrolledSolutions": {
+              "methods": [
+                "ListEnrolledSolutions"
+              ]
+            },
+            "ListOperations": {
+              "methods": [
+                "ListOperations"
+              ]
+            },
+            "UpdateAlertConfig": {
+              "methods": [
+                "UpdateAlertConfig"
+              ]
+            },
+            "UpdateLoggingConfig": {
+              "methods": [
+                "UpdateLoggingConfig"
               ]
             }
           }
@@ -747,6 +1137,11 @@
                 "CollectUserEvent"
               ]
             },
+            "ExportUserEvents": {
+              "methods": [
+                "ExportUserEvents"
+              ]
+            },
             "GetOperation": {
               "methods": [
                 "GetOperation"
@@ -785,6 +1180,11 @@
             "CollectUserEvent": {
               "methods": [
                 "CollectUserEvent"
+              ]
+            },
+            "ExportUserEvents": {
+              "methods": [
+                "ExportUserEvents"
               ]
             },
             "GetOperation": {
